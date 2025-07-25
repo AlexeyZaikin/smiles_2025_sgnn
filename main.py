@@ -295,7 +295,10 @@ def main(cfg: DictConfig) -> None:
                 )
 
                 # Initialize model
-                model = GNNModel(cfg).to(torch.device(cfg.device))
+                model = GNNModel(
+                    cfg,
+                    in_channels=train_data[0].x.shape[-1],
+                ).to(torch.device(cfg.device))
 
                 # Optimizer and scheduler
                 optimizer = torch.optim.AdamW(
