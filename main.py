@@ -7,7 +7,6 @@ import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import torch.nn as nn
-import os
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.model_selection import StratifiedKFold
 import warnings
@@ -48,7 +47,9 @@ def objective(
             "dropout": trial.suggest_float(
                 "dropout", cfg.hparams.dropout.min, cfg.hparams.dropout.max
             ),
-            "residual": trial.suggest_categorical("residual", [True, False]),
+            "residual": trial.suggest_categorical(
+                "residual", cfg.hparams.residual.options
+            ),
             "use_classifier_mlp": trial.suggest_categorical(
                 "use_classifier_mlp", cfg.hparams.use_classifier_mlp.options
             ),
@@ -63,7 +64,7 @@ def objective(
         },
     }
 
-    if cfg.model.type == "GCN":
+    if cfg.model.type in ["GCN"]:
         params["model"]["use_edge_encoder"] = False
     else:
         params["model"]["use_edge_encoder"] = (
@@ -129,14 +130,13 @@ def objective(
         train_loader = DataLoader(
             [full_data[i] for i in train_idx],
             batch_size=trial_cfg.training.batch_size,
-            shuffle=True,
-            num_workers=os.cpu_count(),
+            num_workers=1,
             pin_memory=True,
         )
         val_loader = DataLoader(
             [full_data[i] for i in val_idx],
             batch_size=trial_cfg.training.batch_size,
-            num_workers=os.cpu_count(),
+            num_workers=1,
             pin_memory=True,
         )
 
@@ -217,15 +217,18 @@ def main(cfg: DictConfig) -> None:
         # sparsify and add node features
         p_list = [0.8, 0.7, 0.3]
         sparsify_functions_list = get_sparsify_f_list(p_list)
-        for sparsify_f, node_features in product(
-            sparsify_functions_list, [True, False]
+        for trial_idx, (sparsify_f, node_features) in enumerate(
+            product(sparsify_functions_list, [True, False])
         ):
             data = sparsify_f(data)
             if node_features:
                 data = add_node_features(data)
 
-            cfg.data.sparsify = sparsify_f.__name__
+            cfg.data.sparsify = repr(
+                sparsify_f
+            )  # TODO: proper name for current sparsify
             cfg.data.node_features = node_features
+            cfg.data.trial_idx = trial_idx
 
             # Prepare data
             train_data = data["train"]
@@ -236,15 +239,15 @@ def main(cfg: DictConfig) -> None:
                 model_dir = (
                     dataset_dir
                     / model_type
-                    / cfg.data.sparsify
                     / f"node_features_{cfg.data.node_features}"
+                    / f"sample_{trial_idx}"
                 )
                 model_dir.mkdir(parents=True, exist_ok=True)
 
                 # Set up logging
                 logger, tb_writer = setup_logging(model_dir)
                 logger.info(
-                    f"Starting experiment: {dataset_name}/{model_type}/{cfg.data.sparsify}/node_features_{cfg.data.node_features}"
+                    f"Starting experiment: {dataset_name}/{model_type}/node_features_{cfg.data.node_features}/sample_{trial_idx}"
                 )
 
                 # Update config for current experiment
@@ -280,14 +283,13 @@ def main(cfg: DictConfig) -> None:
                 train_loader = DataLoader(
                     train_data,
                     batch_size=cfg.training.batch_size,
-                    shuffle=True,
-                    num_workers=0,
+                    num_workers=1,
                     pin_memory=True,
                 )
                 test_loader = DataLoader(
                     test_data,
                     batch_size=cfg.training.batch_size,
-                    num_workers=0,
+                    num_workers=1,
                     pin_memory=True,
                 )
 

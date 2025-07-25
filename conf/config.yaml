@@ -3,8 +3,8 @@ seed: 42
 device: "mps"
 
 model:
-  type: 'GATv2' # Model architectures to test
-  activation: 'relu' # Default activation
+  type: "GATv2" # Model architectures to test
+  activation: "relu" # Default activation
   hidden_channels: 32 # Default hidden dimension
   num_layers: 1 # Default number of layers
   dropout: 0.3 # Default dropout rate
@@ -21,8 +21,8 @@ model:
 # Training configuration
 training:
   learning_rate: 1e-3
-  batch_size: 128
-  max_epochs: 128
+  batch_size: 32
+  max_epochs: 32
   patience: 16
   lr_patience: 4
   lr_factor: 0.5
@@ -34,7 +34,7 @@ training:
 # Hyperparameter search space
 hparams:
   # model_type: ['GCN', 'GATv2', 'Transformer', 'GINE']
-  model_type: ['GATv2', 'GCN']
+  model_type: ["GATv2", "GCN"]
   activation:
     options: ["relu", "tanh", "leaky_relu", "prelu", "selu", "elu"]
   hidden_channels:
@@ -75,13 +75,14 @@ hparams:
 
 # Optuna configuration
 optuna:
-  n_trials: 32
-  n_startup_trials: 4
+  n_trials: 16
+  n_startup_trials: 2
   n_warmup_steps: 4
   timeout: 86400 # 24 hours in seconds
 
 data:
-  dataset_path: 'data/tabular/processed_graphs.pkl'
-  datasets: ['plrx', 'spectf', 'liver', 'blood', 'diabetic', 'Immunotherapy', 'spect']
+  dataset_path: "data/tabular/processed_graphs.pkl"
+  datasets: ["Banknote", "blood", "breastCancer", "climate", "Cryotherapy"]
+  trial_idx: null
   sparsify: null
   node_features: null
