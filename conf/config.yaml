@@ -4,15 +4,21 @@ device: "mps"
 
 # Model configuration
 model:
-  types: ["GATv2", "GINE"] # Model architectures to test
+  type: ["GATv2", "GINE"] # Model architectures to test
   activation: "leaky_relu" # Default activation
   hidden_channels: 32 # Default hidden dimension
   num_layers: 1 # Default number of layers
   dropout: 0.3 # Default dropout rate
+  residual: True
+  heads: 1
+  use_edge_encoders: False
+  use_classifier_mlp: False
+  classifier_mlp_dims: []
 
 # Training configuration
 training:
-  batch_size: 128
+  learning_rate: 1e-3
+  batch_size: 512
   max_epochs: 512
   patience: 32
   lr_patience: 10
@@ -41,8 +47,6 @@ hparams:
   learning_rate:
     min: 1e-5
     max: 1e-3
-  use_classifier_mlp:
-    options: [True, False]
   classifier_mlp_dims:
     options: [[32], [64], [32, 16], [64, 32]]
 
