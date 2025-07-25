@@ -1,6 +1,12 @@
 import torch
 from torch_geometric.data import Data
-from torch_geometric.nn import GATv2Conv, GINEConv, global_mean_pool, TransformerConv
+from torch_geometric.nn import (
+    GATv2Conv,
+    GINEConv,
+    global_mean_pool,
+    TransformerConv,
+    GCNConv,
+)
 import torch.nn as nn
 import warnings
 from omegaconf import DictConfig
@@ -104,6 +110,18 @@ class GNNModel(nn.Module):
                         self.concat,
                         dropout=self.dropout,
                         edge_dim=current_edge_dim,
+                    )
+                )
+            elif self.model_type == "GCN":
+                if self.residual:
+                    self.res = nn.Linear(in_channels, self.hidden_channels, bias=False)
+                else:
+                    self.res = None
+                self.layers.append(
+                    GCNConv(
+                        in_channels if i == 0 else self.hidden_channels,
+                        self.hidden_channels,
+                        improved=True,
                     )
                 )
             else:

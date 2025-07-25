@@ -1,4 +1,5 @@
 from datetime import datetime
+from itertools import product
 import pickle
 import torch
 from tqdm.auto import tqdm
@@ -18,6 +19,8 @@ from pathlib import Path
 from typing import List
 
 from sgnn.model import GNNModel
+from sgnn.node_features_utils import add_node_features
+from sgnn.sparsify_utils import get_sparsify_f_list
 from sgnn.trainer import GNNTrainer
 from sgnn.utils import plot_metrics, setup_logging
 
@@ -46,9 +49,6 @@ def objective(
                 "dropout", cfg.hparams.dropout.min, cfg.hparams.dropout.max
             ),
             "residual": trial.suggest_categorical("residual", [True, False]),
-            "use_edge_encoder": trial.suggest_categorical(
-                "use_edge_encoder", cfg.hparams.use_edge_encoder.options
-            ),
             "use_classifier_mlp": trial.suggest_categorical(
                 "use_classifier_mlp", cfg.hparams.use_classifier_mlp.options
             ),
@@ -63,7 +63,16 @@ def objective(
         },
     }
 
-    if cfg.model.type != "GINE":
+    if cfg.model.type == "GCN":
+        params["model"]["use_edge_encoder"] = False
+    else:
+        params["model"]["use_edge_encoder"] = (
+            trial.suggest_categorical(
+                "use_edge_encoder", cfg.hparams.use_edge_encoder.options
+            ),
+        )
+
+    if cfg.model.type in ["GATv2", "Transformer"]:
         params["model"]["heads"] = trial.suggest_int(
             "heads", cfg.hparams.heads.min, cfg.hparams.heads.max
         )
@@ -134,6 +143,7 @@ def objective(
         # Initialize model
         model = GNNModel(
             trial_cfg,
+            in_channels=full_data[0].x.shape[-1],
         ).to(torch.device(trial_cfg.device))
 
         # Optimizer and scheduler
@@ -204,112 +214,125 @@ def main(cfg: DictConfig) -> None:
         dataset_dir = base_dir / dataset_name
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
-        # Prepare data
-        train_data = data["train"]
-        test_data = data["test"]
-        full_data = train_data  # For cross-validation
+        # sparsify and add node features
+        p_list = [0.8, 0.7, 0.3]
+        sparsify_functions_list = get_sparsify_f_list(p_list)
+        for sparsify_f, node_features in product(
+            sparsify_functions_list, [True, False]
+        ):
+            data = sparsify_f(data)
+            if node_features:
+                data = add_node_features(data)
 
-        for model_type in cfg.hparams.model_type:
-            model_dir = dataset_dir / model_type
-            model_dir.mkdir(parents=True, exist_ok=True)
+            cfg.data.sparsify = sparsify_f.__name__
+            cfg.data.node_features = node_features
 
-            # Set up logging
-            logger, tb_writer = setup_logging(model_dir)
-            logger.info(f"Starting experiment: {dataset_name}/{model_type}")
+            # Prepare data
+            train_data = data["train"]
+            test_data = data["test"]
+            full_data = train_data  # For cross-validation
 
-            # Update config for current experiment
-            cfg.model.type = model_type
+            for model_type in cfg.hparams.model_type:
+                model_dir = dataset_dir / model_type
+                model_dir.mkdir(parents=True, exist_ok=True)
 
-            # Optuna hyperparameter optimization
-            study = optuna.create_study(
-                direction="maximize",
-                sampler=optuna.samplers.TPESampler(seed=cfg.seed),
-                pruner=optuna.pruners.MedianPruner(
-                    n_startup_trials=cfg.optuna.n_startup_trials,
-                    n_warmup_steps=cfg.optuna.n_warmup_steps,
-                ),
-            )
+                # Set up logging
+                logger, tb_writer = setup_logging(model_dir)
+                logger.info(f"Starting experiment: {dataset_name}/{model_type}")
 
-            study.optimize(
-                lambda trial: objective(trial, cfg, full_data, model_dir),
-                n_trials=cfg.optuna.n_trials,
-                timeout=cfg.optuna.timeout,
-                show_progress_bar=True,
-            )
+                # Update config for current experiment
+                cfg.model.type = model_type
 
-            # Save best parameters
-            best_params = study.best_params
-            logger.info(f"Best parameters: {best_params}")
-            logger.info(f"Best ROC-AUC: {study.best_value:.4f}")
+                # Optuna hyperparameter optimization
+                study = optuna.create_study(
+                    direction="maximize",
+                    sampler=optuna.samplers.TPESampler(seed=cfg.seed),
+                    pruner=optuna.pruners.MedianPruner(
+                        n_startup_trials=cfg.optuna.n_startup_trials,
+                        n_warmup_steps=cfg.optuna.n_warmup_steps,
+                    ),
+                )
 
-            # Final training with best parameters
-            cfg.model.update(best_params.get("model", {}))
-            cfg.training.update(best_params.get("training", {}))
+                study.optimize(
+                    lambda trial: objective(trial, cfg, full_data, model_dir),
+                    n_trials=cfg.optuna.n_trials,
+                    timeout=cfg.optuna.timeout,
+                    show_progress_bar=True,
+                )
 
-            # Data loaders
-            train_loader = DataLoader(
-                train_data,
-                batch_size=cfg.training.batch_size,
-                shuffle=True,
-                num_workers=0,
-                pin_memory=True,
-            )
-            test_loader = DataLoader(
-                test_data,
-                batch_size=cfg.training.batch_size,
-                num_workers=0,
-                pin_memory=True,
-            )
+                # Save best parameters
+                best_params = study.best_params
+                logger.info(f"Best parameters: {best_params}")
+                logger.info(f"Best ROC-AUC: {study.best_value:.4f}")
 
-            # Initialize model
-            model = GNNModel(cfg).to(torch.device(cfg.device))
+                # Final training with best parameters
+                cfg.model.update(best_params.get("model", {}))
+                cfg.training.update(best_params.get("training", {}))
 
-            # Optimizer and scheduler
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=cfg.training.learning_rate,
-                weight_decay=cfg.training.weight_decay,
-            )
-            scheduler = ReduceLROnPlateau(
-                optimizer,
-                mode="max",
-                patience=cfg.training.lr_patience,
-                factor=cfg.training.lr_factor,
-            )
-            criterion = nn.CrossEntropyLoss()
+                # Data loaders
+                train_loader = DataLoader(
+                    train_data,
+                    batch_size=cfg.training.batch_size,
+                    shuffle=True,
+                    num_workers=0,
+                    pin_memory=True,
+                )
+                test_loader = DataLoader(
+                    test_data,
+                    batch_size=cfg.training.batch_size,
+                    num_workers=0,
+                    pin_memory=True,
+                )
 
-            # Train final model
-            trainer = GNNTrainer(cfg, device=cfg.device)
-            history, model = trainer.train(
-                model,
-                train_loader,
-                test_loader,
-                optimizer,
-                criterion,
-                scheduler,
-                logger,
-                tb_writer,
-                model_dir,
-            )
+                # Initialize model
+                model = GNNModel(cfg).to(torch.device(cfg.device))
 
-            # Final evaluation
-            test_metrics = trainer.evaluate(model, test_loader, criterion)
+                # Optimizer and scheduler
+                optimizer = torch.optim.AdamW(
+                    model.parameters(),
+                    lr=cfg.training.learning_rate,
+                    weight_decay=cfg.training.weight_decay,
+                )
+                scheduler = ReduceLROnPlateau(
+                    optimizer,
+                    mode="max",
+                    patience=cfg.training.lr_patience,
+                    factor=cfg.training.lr_factor,
+                )
+                criterion = nn.CrossEntropyLoss()
 
-            # Log results
-            logger.info(f"\n{'=' * 50}")
-            logger.info(f"FINAL RESULTS: {dataset_name}/{model_type}")
-            logger.info(f"Activation: {cfg.model.activation}")
-            logger.info(f"Test ROC-AUC: {test_metrics['roc_auc']:.4f}")
-            logger.info(f"Test F1: {test_metrics['f1']:.4f}")
-            logger.info(f"Test Accuracy: {test_metrics['accuracy']:.4f}")
-            logger.info(f"Test PR-AUC: {test_metrics['pr_auc']:.4f}")
-            logger.info("=" * 50)
+                # Train final model
+                trainer = GNNTrainer(cfg, device=cfg.device)
+                history, model = trainer.train(
+                    model,
+                    train_loader,
+                    test_loader,
+                    optimizer,
+                    criterion,
+                    scheduler,
+                    logger,
+                    tb_writer,
+                    model_dir,
+                )
 
-            # Visualizations
-            plot_metrics(history, model_dir)
+                # Final evaluation
+                test_metrics = trainer.evaluate(model, test_loader, criterion)
 
-            # Close resources
-            tb_writer.close()
+                # Log results
+                logger.info(f"\n{'=' * 50}")
+                logger.info(f"FINAL RESULTS: {dataset_name}/{model_type}")
+                logger.info(f"Activation: {cfg.model.activation}")
+                logger.info(f"Test ROC-AUC: {test_metrics['roc_auc']:.4f}")
+                logger.info(f"Test F1: {test_metrics['f1']:.4f}")
+                logger.info(f"Test Accuracy: {test_metrics['accuracy']:.4f}")
+                logger.info(f"Test PR-AUC: {test_metrics['pr_auc']:.4f}")
+                logger.info("=" * 50)
+
+                # Visualizations
+                plot_metrics(history, model_dir)
+
+                # Close resources
+                tb_writer.close()
 
 
 if __name__ == "__main__":
