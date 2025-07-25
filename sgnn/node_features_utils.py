@@ -4,7 +4,7 @@ import networkx as nx
 
 def add_node_features(graphs):
     graph_data = {}
-    for data_type in ['train', 'test']:
+    for data_type in ["train", "test"]:
         new_graphs = []
 
         for graph in graphs[data_type]:
@@ -21,11 +21,11 @@ def add_node_features(graphs):
             G.add_nodes_from(range(num_nodes))
 
             deg = dict(G.degree())
-            strength = dict(G.degree(weight='weight'))
+            strength = dict(G.degree(weight="weight"))
             closeness = nx.closeness_centrality(G)
-            betweenness = nx.betweenness_centrality(G, weight='weight')
+            betweenness = nx.betweenness_centrality(G, weight="weight")
             # ломается на 5ом графе
-            #pagerank = nx.pagerank(G, weight='weight', max_iter=1000000)
+            # pagerank = nx.pagerank(G, weight='weight', max_iter=1000000)
 
             scalar_features = (
                 graph.x.squeeze()
@@ -42,11 +42,11 @@ def add_node_features(graphs):
                     strength.get(node, 0.0) / max(num_nodes - 1, 1),
                     closeness.get(node, 0.0),
                     betweenness.get(node, 0.0),
-                    #pagerank.get(node, 0.0)
+                    # pagerank.get(node, 0.0)
                 ]
                 node_features.append(features)
 
-            graph.x = torch.tensor(node_features, dtype=torch.float)
+            graph.x = torch.nan_to_num(torch.tensor(node_features, dtype=torch.float))
             new_graphs.append(graph)
 
         graph_data[data_type] = new_graphs

@@ -28,15 +28,15 @@ training:
   lr_factor: 0.5
   weight_decay: 1e-5
   cv_folds: 3
-  mixed_precision: True
+  mixed_precision: False
   log_interval: 16
 
 # Hyperparameter search space
 hparams:
   # model_type: ['GCN', 'GATv2', 'Transformer', 'GINE']
-  model_type: ["GATv2", "GCN"]
+  model_type: ["GCN", "GATv2"]
   activation:
-    options: ["relu", "tanh", "leaky_relu", "prelu", "selu", "elu"]
+    options: ["tanh", "leaky_relu"]
   hidden_channels:
     min: 4
     max: 512
@@ -82,7 +82,7 @@ optuna:
 
 data:
   dataset_path: "data/tabular/processed_graphs.pkl"
-  datasets: ["Banknote", "blood", "breastCancer", "climate", "Cryotherapy"]
+  datasets: ["blood", "breastCancer", "climate", "Cryotherapy", "Banknote"]
   trial_idx: null
   sparsify: null
   node_features: null
