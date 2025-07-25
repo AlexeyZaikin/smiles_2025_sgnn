@@ -219,7 +219,7 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
         if node_features:
             data = add_node_features(data)
 
-        cfg.data.sparsify = sparsify_name  # TODO: proper name for current sparsify
+        cfg.data.sparsify = sparsify_name
         cfg.data.node_features = node_features
         cfg.data.trial_idx = trial_idx
 
