@@ -6,17 +6,17 @@ optimize: False
 model:
   type: "GATv2" # Model architectures to test
   activation: "leaky_relu" # Default activation
-  hidden_channels: 128 # Default hidden dimension
-  num_layers: 3 # Default number of layers
-  dropout: 0.2 # Default dropout rate
+  hidden_channels: 256 # Default hidden dimension
+  num_layers: 2 # Default number of layers
+  dropout: 0.3 # Default dropout rate
   residual: True
-  heads: 3
+  heads: 2
   concat: True
   use_edge_encoder: True
-  edge_encoder_channels: 16
+  edge_encoder_channels: 8
   edge_encoder_layers: 2
   use_classifier_mlp: True
-  classifier_mlp_channels: 64
+  classifier_mlp_channels: 32
   classifier_mlp_layers: 2
 
 # Training configuration
@@ -24,7 +24,7 @@ training:
   learning_rate: 1e-3
   batch_size: 256
   max_epochs: 256
-  patience: 32
+  patience: 64
   lr_patience: 8
   lr_factor: 0.5
   weight_decay: 1e-5
@@ -82,7 +82,7 @@ optuna:
   timeout: 86400 # 24 hours in seconds
 
 data:
-  dataset_path: "data/tabular/processed_graphs.pkl"
+  dataset_path: "data/tabular/"
   datasets: null
   trial_idx: null 
   sparsify: null

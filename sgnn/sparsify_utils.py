@@ -121,17 +121,17 @@ def sparsify_min_connected(graphs):
     return graph_data
 
 
-def get_sparsify_f_list(p_list=[0.3, 0.5, 0.8]):
+def get_sparsify_f_list(p_list=[0.3, 0.8]):
     f_list = (
         [("no_sparsify", no_sparsify)]
         + [
             (f"sparsify_p_{p_val}".replace(".", "_"), partial(sparsify_p, p=p_val))
             for p_val in p_list
         ]
-        + [
-            (f"sparsify_knn_{p_val}".replace(".", "_"), partial(sparsify_knn, p=p_val))
-            for p_val in p_list
-        ]
+        # + [
+        #     (f"sparsify_knn_{p_val}".replace(".", "_"), partial(sparsify_knn, p=p_val))
+        #     for p_val in p_list
+        # ]
         + [("sparsify_min_connected", sparsify_min_connected)]
     )
     return f_list

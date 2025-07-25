@@ -214,27 +214,27 @@ def main(cfg: DictConfig) -> None:
     base_dir = Path.cwd() / "logs" / timestamp
 
     # Load datasets
-    dataset_path = cfg.data.dataset_path
+    dataset_path = Path(cfg.data.dataset_path) / "processed_graphs.pkl"
     dataset_names = cfg.data.datasets
     all_data = pickle.load(open(dataset_path, "rb"))
     selected_data = {"train": [], "test": []}
     if dataset_names:
-        for dataset_name in tqdm(dataset_names, desc='Loading datasets'):
+        for dataset_name in tqdm(dataset_names, desc="Loading datasets"):
             data = all_data[dataset_name]
             selected_data["train"].extend(data["train"])
             selected_data["test"].extend(data["test"])
     else:
-        for dataset_name in tqdm(all_data, desc='Loading ALL datasets'):
+        for dataset_name in tqdm(all_data, desc="Loading ALL datasets"):
             data = all_data[dataset_name]
             selected_data["train"].extend(data["train"])
             selected_data["test"].extend(data["test"])
 
     # sparsify and add node features
-    p_list = [0.8, 0.7, 0.3]
+    p_list = [0.2, 0.8]
     sparsify_functions_list = get_sparsify_f_list(p_list)
-    for trial_idx, (sparsify_tuple, node_features) in tqdm(
-        enumerate(product(sparsify_functions_list, [True, False]))
-    , desc='Sparsifying'):
+    for trial_idx, (sparsify_tuple, node_features) in enumerate(
+        product(sparsify_functions_list, [True, False])
+    ):
         sparsify_name = sparsify_tuple[0]
         sparsify_f = sparsify_tuple[1]
         data = sparsify_f(selected_data)
@@ -253,6 +253,7 @@ def main(cfg: DictConfig) -> None:
         for model_type in cfg.hparams.model_type:
             model_dir = (
                 base_dir
+                / dataset_path.parent.stem
                 / model_type
                 / cfg.data.sparsify
                 / f"node_features_{cfg.data.node_features}"
@@ -356,7 +357,12 @@ def main(cfg: DictConfig) -> None:
                     logger.info(f"Global Test F1: {test_metrics['f1']:.4f}")
                     # Log per-dataset metrics
                     logger.info("\nPer-dataset metrics:")
-                    for dataset, metrics_dict in test_metrics["per_dataset"].items():
+                    dataset_metrics = sorted(
+                        test_metrics["per_dataset"].items(),
+                        key=lambda x: x[1]["roc_auc"],
+                        reverse=True,
+                    )
+                    for dataset, metrics_dict in dataset_metrics:
                         logger.info(
                             f"{dataset}: ROC-AUC={metrics_dict['roc_auc']:.4f} | "
                             f"F1={metrics_dict['f1']:.4f} | "
