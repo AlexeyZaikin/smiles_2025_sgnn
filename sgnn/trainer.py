@@ -25,7 +25,7 @@ warnings.filterwarnings("ignore")
 class GNNTrainer:
     """Optimized GNN trainer with automatic configuration"""
 
-    def __init__(self, cfg: DictConfig, device: str = "cuda"):
+    def __init__(self, cfg: DictConfig, device: str = "mps"):
         self.cfg = cfg
         self.device = torch.device(device)
         self.metric_history = defaultdict(list)
@@ -141,7 +141,7 @@ class GNNTrainer:
         log_dir: Path,
     ) -> Tuple[Dict[str, list], nn.Module]:
         """Training loop with early stopping and checkpointing"""
-        best_val_f1 = 0
+        best_val_roc_auc = 0
         early_stop_counter = 0
         history = defaultdict(list)
         epochs = self.cfg.training.max_epochs
@@ -170,6 +170,7 @@ class GNNTrainer:
             history["train_roc_auc"].append(train_metrics["roc_auc"])
             history["train_f1"].append(train_metrics["f1"])
             history["val_loss"].append(val_metrics["loss"])
+            history["val_acc"].append(val_metrics["accuracy"])
             history["val_roc_auc"].append(val_metrics["roc_auc"])
             history["val_f1"].append(val_metrics["f1"])
             history["lr"].append(optimizer.param_groups[0]["lr"])
@@ -178,23 +179,26 @@ class GNNTrainer:
             tb_writer.add_scalar("Loss/train", train_loss, epoch)
             tb_writer.add_scalar("Loss/val", val_metrics["loss"], epoch)
             tb_writer.add_scalar("ROC-AUC/val", val_metrics["roc_auc"], epoch)
+            tb_writer.add_scalar("Accuracy/val", val_metrics["accuracy"], epoch)
             tb_writer.add_scalar("F1/val", val_metrics["f1"], epoch)
             tb_writer.add_scalar("Learning Rate", history["lr"][-1], epoch)
 
             # Checkpointing
-            if val_metrics["f1"] > best_val_f1:
-                best_val_f1 = val_metrics["f1"]
+            if val_metrics["roc_auc"] > best_val_roc_auc:
+                best_val_roc_auc = val_metrics["roc_auc"]
                 early_stop_counter = 0
                 torch.save(
                     {
                         "epoch": epoch,
                         "model_state_dict": model.state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
-                        "val_f1": best_val_f1,
+                        "val_roc_auc": best_val_roc_auc,
                     },
                     log_dir / "best_model.pth",
                 )
-                logger.info(f"New best model at epoch {epoch}: F1 = {best_val_f1:.4f}")
+                logger.info(
+                    f"New best model at epoch {epoch}: ROC-AUC = {best_val_roc_auc:.4f}"
+                )
             else:
                 early_stop_counter += 1
                 if early_stop_counter >= patience:
@@ -209,7 +213,8 @@ class GNNTrainer:
                     f"LR: {history['lr'][-1]:.6f} | "
                     f"Train Loss: {train_loss:.4f} | "
                     f"Val Loss: {val_metrics['loss']:.4f} | "
-                    f"Val F1: {val_metrics['f1']:.4f}"
+                    f"Val F1: {val_metrics['f1']:.4f} |"
+                    f"Val ROC-AUC: {val_metrics['roc_auc']:.4f}"
                 )
 
         # Load best model

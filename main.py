@@ -1,3 +1,4 @@
+from datetime import datetime
 import pickle
 import torch
 import numpy as np
@@ -5,14 +6,8 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import torch.nn as nn
 import os
-import matplotlib.pyplot as plt
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from datetime import datetime
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import (
-    classification_report,
-)
-import seaborn as sns
 import warnings
 import optuna
 from optuna.trial import Trial
@@ -35,6 +30,9 @@ def objective(
     # Suggest hyperparameters
     params = {
         "model": {
+            "activation": trial.suggest_categorical(
+                "activation", cfg.hparams.activation
+            ),
             "hidden_channels": trial.suggest_int(
                 "hidden_channels",
                 cfg.hparams.hidden_channels.min,
@@ -107,9 +105,9 @@ def objective(
         )
 
         # Initialize model
-        model = GNNModel(trial_cfg, in_channels=1, out_channels=2, edge_dim=1).to(
-            torch.device(trial_cfg.device)
-        )
+        model = GNNModel(
+            trial_cfg,
+        ).to(torch.device(trial_cfg.device))
 
         # Optimizer and scheduler
         optimizer = torch.optim.AdamW(
@@ -166,16 +164,18 @@ def objective(
 def main(cfg: DictConfig) -> None:
     """Main experiment runner with Hydra configuration"""
     # Initialize output directory
-    base_dir = Path.cwd()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_dir = Path.cwd() / "logs" / timestamp
 
     # Load datasets
     dataset_path = cfg.data.dataset_path
     all_data = pickle.load(open(dataset_path, "rb"))
 
     for dataset_name, data in all_data.items():
+        if dataset_name != "plrx":
+            continue
         dataset_dir = base_dir / dataset_name
-        dataset_dir.mkdir(exist_ok=True)
+        dataset_dir.mkdir(parents=True, exist_ok=True)
 
         # Prepare data
         train_data = data["train"]
@@ -186,128 +186,103 @@ def main(cfg: DictConfig) -> None:
             model_dir = dataset_dir / model_type
             model_dir.mkdir(exist_ok=True)
 
-            for activation in cfg.model.activation:
-                exp_dir = model_dir / activation
-                exp_dir.mkdir(exist_ok=True)
+            # Set up logging
+            logger, tb_writer = setup_logging(model_dir)
+            logger.info(f"Starting experiment: {dataset_name}/{model_type}")
 
-                # Set up logging
-                logger, tb_writer = setup_logging(exp_dir)
-                logger.info(
-                    f"Starting experiment: {dataset_name}/{model_type}/{activation}"
-                )
+            # Update config for current experiment
+            cfg.model.type = model_type
 
-                # Update config for current experiment
-                cfg.model.type = model_type
-                cfg.model.activation = activation
+            # Optuna hyperparameter optimization
+            study = optuna.create_study(
+                direction="maximize",
+                sampler=optuna.samplers.TPESampler(seed=cfg.seed),
+                pruner=optuna.pruners.MedianPruner(
+                    n_startup_trials=cfg.optuna.n_startup_trials,
+                    n_warmup_steps=cfg.optuna.n_warmup_steps,
+                ),
+            )
 
-                # Optuna hyperparameter optimization
-                study = optuna.create_study(
-                    direction="maximize",
-                    sampler=optuna.samplers.TPESampler(seed=cfg.seed),
-                    pruner=optuna.pruners.MedianPruner(
-                        n_startup_trials=cfg.optuna.n_startup_trials,
-                        n_warmup_steps=cfg.optuna.n_warmup_steps,
-                    ),
-                )
+            study.optimize(
+                lambda trial: objective(trial, cfg, full_data, model_dir),
+                n_trials=cfg.optuna.n_trials,
+                timeout=cfg.optuna.timeout,
+                show_progress_bar=True,
+            )
 
-                study.optimize(
-                    lambda trial: objective(trial, cfg, full_data, exp_dir),
-                    n_trials=cfg.optuna.n_trials,
-                    timeout=cfg.optuna.timeout,
-                    show_progress_bar=True,
-                )
+            # Save best parameters
+            best_params = study.best_params
+            logger.info(f"Best parameters: {best_params}")
+            logger.info(f"Best ROC-AUC: {study.best_value:.4f}")
 
-                # Save best parameters
-                best_params = study.best_params
-                logger.info(f"Best parameters: {best_params}")
-                logger.info(f"Best ROC-AUC: {study.best_value:.4f}")
+            # Final training with best parameters
+            cfg.model.update(best_params.get("model", {}))
+            cfg.training.update(best_params.get("training", {}))
 
-                # Final training with best parameters
-                cfg.model.update(best_params.get("model", {}))
-                cfg.training.update(best_params.get("training", {}))
+            # Data loaders
+            train_loader = DataLoader(
+                train_data,
+                batch_size=cfg.training.batch_size,
+                shuffle=True,
+                num_workers=0,
+                pin_memory=True,
+            )
+            test_loader = DataLoader(
+                test_data,
+                batch_size=cfg.training.batch_size,
+                num_workers=0,
+                pin_memory=True,
+            )
 
-                # Data loaders
-                train_loader = DataLoader(
-                    train_data,
-                    batch_size=cfg.training.batch_size,
-                    shuffle=True,
-                    num_workers=os.cpu_count(),
-                    pin_memory=True,
-                )
-                test_loader = DataLoader(
-                    test_data,
-                    batch_size=cfg.training.batch_size,
-                    num_workers=os.cpu_count(),
-                    pin_memory=True,
-                )
+            # Initialize model
+            model = GNNModel(cfg).to(torch.device(cfg.device))
 
-                # Initialize model
-                model = GNNModel(cfg, in_channels=1, out_channels=2, edge_dim=1).to(
-                    torch.device(cfg.device)
-                )
+            # Optimizer and scheduler
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=cfg.training.learning_rate,
+                weight_decay=cfg.training.weight_decay,
+            )
+            scheduler = ReduceLROnPlateau(
+                optimizer,
+                mode="max",
+                patience=cfg.training.lr_patience,
+                factor=cfg.training.lr_factor,
+            )
+            criterion = nn.CrossEntropyLoss()
 
-                # Optimizer and scheduler
-                optimizer = torch.optim.AdamW(
-                    model.parameters(),
-                    lr=cfg.training.learning_rate,
-                    weight_decay=cfg.training.weight_decay,
-                )
-                scheduler = ReduceLROnPlateau(
-                    optimizer,
-                    mode="max",
-                    patience=cfg.training.lr_patience,
-                    factor=cfg.training.lr_factor,
-                )
-                criterion = nn.CrossEntropyLoss()
+            # Train final model
+            trainer = GNNTrainer(cfg, device=cfg.device)
+            history, model = trainer.train(
+                model,
+                train_loader,
+                test_loader,  # Using test as validation for final training
+                optimizer,
+                criterion,
+                scheduler,
+                logger,
+                tb_writer,
+                model_dir,
+            )
 
-                # Train final model
-                trainer = GNNTrainer(cfg, device=cfg.device)
-                history, model = trainer.train(
-                    model,
-                    train_loader,
-                    test_loader,  # Using test as validation for final training
-                    optimizer,
-                    criterion,
-                    scheduler,
-                    logger,
-                    tb_writer,
-                    exp_dir,
-                )
+            # Final evaluation
+            test_metrics = trainer.evaluate(model, test_loader, criterion)
 
-                # Final evaluation
-                test_metrics = trainer.evaluate(model, test_loader, criterion)
+            # Log results
+            logger.info(f"\n{'=' * 50}")
+            logger.info(f"FINAL RESULTS: {dataset_name}/{model_type}")
+            logger.info(f"Activation: {cfg.model.activation}")
+            logger.info(f"Test ROC-AUC: {test_metrics['roc_auc']:.4f}")
+            logger.info(f"Test F1: {test_metrics['f1']:.4f}")
+            logger.info(f"Test Accuracy: {test_metrics['accuracy']:.4f}")
+            logger.info(f"Test PR-AUC: {test_metrics['pr_auc']:.4f}")
+            logger.info("=" * 50)
 
-                # Log results
-                logger.info(f"\n{'=' * 50}")
-                logger.info(f"FINAL RESULTS: {dataset_name}/{model_type}/{activation}")
-                logger.info(f"Test ROC-AUC: {test_metrics['roc_auc']:.4f}")
-                logger.info(f"Test F1: {test_metrics['f1']:.4f}")
-                logger.info(f"Test Accuracy: {test_metrics['accuracy']:.4f}")
-                logger.info(f"Test PR-AUC: {test_metrics['pr_auc']:.4f}")
-                logger.info("\nClassification Report:")
-                logger.info(
-                    classification_report(
-                        test_metrics["classification_report"]["0"],
-                        test_metrics["classification_report"]["1"],
-                        target_names=["Class 0", "Class 1"],
-                    )
-                )
-                logger.info("=" * 50)
+            # Visualizations
+            plot_metrics(history, model_dir)
 
-                # Visualizations
-                plot_metrics(history, exp_dir)
-
-                # Save confusion matrix
-                plt.figure(figsize=(8, 6))
-                sns.heatmap(
-                    test_metrics["confusion_matrix"], annot=True, fmt="d", cmap="Blues"
-                )
-                plt.title("Confusion Matrix")
-                plt.savefig(exp_dir / "confusion_matrix.png")
-                plt.close()
-
-                # Close resources
-                tb_writer.close()
+            # Close resources
+            tb_writer.close()
 
 
 if __name__ == "__main__":

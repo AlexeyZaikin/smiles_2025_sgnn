@@ -54,12 +54,12 @@ def plot_metrics(history: Dict[str, list], log_dir: Path):
     plt.xlabel("Epoch")
     plt.ylabel("F1")
 
-    # Learning Rate
+    # Accuracy
     plt.subplot(2, 2, 4)
-    plt.plot(history["epoch"], history["lr"], "c-")
-    plt.title("Learning Rate Schedule")
+    plt.plot(history["epoch"], history["val_acc"], "c-")
+    plt.title("Validation Accuracy")
     plt.xlabel("Epoch")
-    plt.ylabel("Learning Rate")
+    plt.ylabel("Accuracy")
     plt.yscale("log")
 
     plt.tight_layout()
