@@ -233,12 +233,19 @@ def main(cfg: DictConfig) -> None:
             full_data = train_data  # For cross-validation
 
             for model_type in cfg.hparams.model_type:
-                model_dir = dataset_dir / model_type
+                model_dir = (
+                    dataset_dir
+                    / model_type
+                    / cfg.data.sparsify
+                    / f"node_features_{cfg.data.node_features}"
+                )
                 model_dir.mkdir(parents=True, exist_ok=True)
 
                 # Set up logging
                 logger, tb_writer = setup_logging(model_dir)
-                logger.info(f"Starting experiment: {dataset_name}/{model_type}")
+                logger.info(
+                    f"Starting experiment: {dataset_name}/{model_type}/{cfg.data.sparsify}/node_features_{cfg.data.node_features}"
+                )
 
                 # Update config for current experiment
                 cfg.model.type = model_type
