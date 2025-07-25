@@ -206,29 +206,7 @@ def objective(
     return np.mean(cv_scores)
 
 
-@hydra.main(config_path="conf", config_name="config", version_base="1.3")
-def main(cfg: DictConfig) -> None:
-    """Main experiment runner with Hydra configuration"""
-    # Initialize output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_dir = Path.cwd() / "logs" / timestamp
-
-    # Load datasets
-    dataset_path = Path(cfg.data.dataset_path) / "processed_graphs.pkl"
-    dataset_names = cfg.data.datasets
-    all_data = pickle.load(open(dataset_path, "rb"))
-    selected_data = {"train": [], "test": []}
-    if dataset_names:
-        for dataset_name in tqdm(dataset_names, desc="Loading datasets"):
-            data = all_data[dataset_name]
-            selected_data["train"].extend(data["train"])
-            selected_data["test"].extend(data["test"])
-    else:
-        for dataset_name in tqdm(all_data, desc="Loading ALL datasets"):
-            data = all_data[dataset_name]
-            selected_data["train"].extend(data["train"])
-            selected_data["test"].extend(data["test"])
-
+def main_loop(cfg: DictConfig, selected_data, base_dir):
     # sparsify and add node features
     p_list = [0.2, 0.8]
     sparsify_functions_list = get_sparsify_f_list(p_list)
@@ -253,7 +231,6 @@ def main(cfg: DictConfig) -> None:
         for model_type in cfg.hparams.model_type:
             model_dir = (
                 base_dir
-                / dataset_path.parent.stem
                 / model_type
                 / cfg.data.sparsify
                 / f"node_features_{cfg.data.node_features}"
@@ -385,6 +362,34 @@ def main(cfg: DictConfig) -> None:
 
             # Close resources
             tb_writer.close()
+
+@hydra.main(config_path="conf", config_name="config", version_base="1.3")
+def main(cfg: DictConfig) -> None:
+    """Main experiment runner with Hydra configuration"""
+    # Initialize output directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_dir = Path.cwd() / "logs" / timestamp
+
+    # Load datasets
+    dataset_path = Path(cfg.data.dataset_path) / "processed_graphs.pkl"
+    dataset_names = cfg.data.datasets
+    all_data = pickle.load(open(dataset_path, "rb"))
+    if cfg.per_dataset:
+        if not dataset_names:
+            dataset_names = list(all_data.keys())
+        for dataset_name in tqdm(dataset_names):
+            base_dir = base_dir / dataset_name
+            selected_data = all_data[dataset_name]
+            main_loop(cfg, selected_data, base_dir)
+    else:
+        selected_data = {"train": [], "test": []}
+        if not dataset_names:
+            dataset_names = list(all_data.keys())
+            for dataset_name in tqdm(dataset_names, desc="Loading datasets"):
+                data = all_data[dataset_name]
+                selected_data["train"].extend(data["train"])
+                selected_data["test"].extend(data["test"])
+            main_loop(cfg, selected_data, base_dir)
 
 
 if __name__ == "__main__":
