@@ -12,9 +12,6 @@ from typing import Dict, Tuple
 warnings.filterwarnings("ignore")
 
 
-warnings.filterwarnings("ignore")
-
-
 # Set global seeds for reproducibility
 def set_global_seed(seed: int = 42):
     torch.manual_seed(seed)
@@ -83,18 +80,18 @@ def setup_logging(log_dir: Path) -> Tuple[logging.Logger, SummaryWriter]:
     file_handler.setLevel(logging.DEBUG)
 
     # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    # console_handler = logging.StreamHandler()
+    # console_handler.setLevel(logging.INFO)
 
     # Formatter
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
     file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
+    # console_handler.setFormatter(formatter)
 
     logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+    # logger.addHandler(console_handler)
 
     # TensorBoard writer
     tb_writer = SummaryWriter(log_dir=log_dir)

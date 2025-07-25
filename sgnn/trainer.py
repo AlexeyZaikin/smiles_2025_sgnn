@@ -49,7 +49,7 @@ class GNNTrainer:
 
             # Mixed precision training
             with torch.amp.autocast(
-                enabled=self.cfg.training.mixed_precision, device_type=str(self.device)
+                enabled=self.cfg.training.mixed_precision, device_type=self.device.type
             ):
                 out = model(batch)
                 loss = criterion(out, batch.y.long())

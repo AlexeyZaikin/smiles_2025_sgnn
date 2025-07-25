@@ -45,20 +45,12 @@ def objective(
             "dropout": trial.suggest_float(
                 "dropout", cfg.hparams.dropout.min, cfg.hparams.dropout.max
             ),
-            "heads": trial.suggest_int(
-                "heads", cfg.hparams.heads.min, cfg.hparams.heads.max
-            )
-            if cfg.model.type == "GATv2"
-            else 1,
-            # "use_edge_encoders": trial.suggest_categorical(
-            #     "use_edge_encoders", [True, False]
-            # ),
             "residual": trial.suggest_categorical("residual", [True, False]),
-            "use_classifier_mlp": trial.suggest_categorical(
-                "use_classifier_mlp", [True, False]
+            "use_edge_encoder": trial.suggest_categorical(
+                "use_edge_encoder", cfg.hparams.use_edge_encoder.options
             ),
-            "classifier_mlp_dims": trial.suggest_categorical(
-                "classifier_mlp_dims", cfg.hparams.classifier_mlp_dims.options
+            "use_classifier_mlp": trial.suggest_categorical(
+                "use_classifier_mlp", cfg.hparams.use_classifier_mlp.options
             ),
         },
         "training": {
@@ -70,6 +62,38 @@ def objective(
             ),
         },
     }
+
+    if cfg.model.type != "GINE":
+        params["model"]["heads"] = trial.suggest_int(
+            "heads", cfg.hparams.heads.min, cfg.hparams.heads.max
+        )
+        params["model"]["concat"] = trial.suggest_categorical(
+            "concat", cfg.hparams.concat.options
+        )
+
+    if params["model"]["use_edge_encoder"]:
+        params["model"]["edge_encoder_channels"] = trial.suggest_int(
+            "edge_encoder_channels",
+            cfg.hparams.edge_encoder_channels.min,
+            cfg.hparams.edge_encoder_channels.max,
+        )
+        params["model"]["edge_encoder_layers"] = trial.suggest_int(
+            "edge_encoder_layers",
+            cfg.hparams.edge_encoder_layers.min,
+            cfg.hparams.edge_encoder_layers.max,
+        )
+
+    if params["model"]["use_classifier_mlp"]:
+        params["model"]["classifier_mlp_channels"] = trial.suggest_int(
+            "classifier_mlp_channels",
+            cfg.hparams.classifier_mlp_channels.min,
+            cfg.hparams.classifier_mlp_channels.max,
+        )
+        params["model"]["classifier_mlp_layers"] = trial.suggest_int(
+            "classifier_mlp_layers",
+            cfg.hparams.classifier_mlp_layers.min,
+            cfg.hparams.classifier_mlp_layers.max,
+        )
 
     # Create trial-specific config
     trial_cfg = OmegaConf.merge(cfg, OmegaConf.create(params))
@@ -185,9 +209,9 @@ def main(cfg: DictConfig) -> None:
         test_data = data["test"]
         full_data = train_data  # For cross-validation
 
-        for model_type in cfg.model.type:
+        for model_type in cfg.hparams.model_type:
             model_dir = dataset_dir / model_type
-            model_dir.mkdir(exist_ok=True)
+            model_dir.mkdir(parents=True, exist_ok=True)
 
             # Set up logging
             logger, tb_writer = setup_logging(model_dir)
@@ -259,7 +283,7 @@ def main(cfg: DictConfig) -> None:
             history, model = trainer.train(
                 model,
                 train_loader,
-                test_loader,  # Using test as validation for final training
+                test_loader,
                 optimizer,
                 criterion,
                 scheduler,

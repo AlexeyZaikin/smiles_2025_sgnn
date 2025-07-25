@@ -1,6 +1,6 @@
 import torch
 from torch_geometric.data import Data
-from torch_geometric.nn import GATv2Conv, GINEConv, global_mean_pool
+from torch_geometric.nn import GATv2Conv, GINEConv, global_mean_pool, TransformerConv
 import torch.nn as nn
 import warnings
 from omegaconf import DictConfig
@@ -21,75 +21,110 @@ class GNNModel(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.layers = nn.ModuleList()
-        self.per_layer_edge_encoders = nn.ModuleList()
+        self.edge_encoders = nn.ModuleList()
 
         # Initialize from configuration
-        model_type = cfg.model.type
-        hidden_channels = cfg.model.hidden_channels
-        num_layers = cfg.model.num_layers
-        heads = cfg.model.get("heads", 1)
-        dropout = cfg.model.dropout
+        self.model_type = cfg.model.type
         activation = cfg.model.activation
-        residual = cfg.model.get("residual", False)
-        use_edge_encoders = cfg.model.get("use_edge_encoders", False)
-        use_classifier_mlp = cfg.model.get("use_classifier_mlp", False)
-        classifier_mlp_dims = cfg.model.get("classifier_mlp_dims", [])
+        self.hidden_channels = cfg.model.hidden_channels
+        self.num_layers = cfg.model.num_layers
+        self.dropout = cfg.model.dropout
+        self.residual = cfg.model.get("residual", False)
+        self.heads = cfg.model.get("heads", 1)
+        self.concat = cfg.model.get("concat", True)
+        self.use_edge_encoders = cfg.model.get("use_edge_encoders", False)
+        self.edge_encoder_channels = cfg.model.get("edge_encoder_channels", 16)
+        self.edge_encoder_layers = cfg.model.get("edge_encoder_layers", 1)
+        self.use_classifier_mlp = cfg.model.get("use_classifier_mlp", False)
+        self.classifier_mlp_channels = cfg.model.get("classifier_mlp_channels", 16)
+        self.classifier_mlp_layers = cfg.model.get("classifier_mlp_layers", 1)
 
         # Activation function setup
         self.activation = self._get_activation(activation)
 
-        # Edge dimension handling
         current_edge_dim = edge_dim
-
         # Build GNN layers
-        for i in range(num_layers):
-            if use_edge_encoders:
-                edge_encoder = nn.Linear(current_edge_dim, hidden_channels)
-                self.per_layer_edge_encoders.append(edge_encoder)
-                current_edge_dim = hidden_channels
-            else:
-                self.per_layer_edge_encoders.append(nn.Identity())
+        for i in range(self.num_layers):
+            # Edge dimension handling
+            if self.use_edge_encoders:
+                per_layer_edge_encoders = []
+                for i in range(self.edge_encoder_layers):
+                    edge_encoder = nn.Sequential(
+                        nn.Linear(current_edge_dim, self.edge_encoder_channels),
+                        nn.Dropout(self.dropout),
+                        self.activation,
+                    )
+                    current_edge_dim = self.edge_encoder_channels
+                    per_layer_edge_encoders.append(edge_encoder)
+                self.edge_encoders.append(nn.Sequential(*per_layer_edge_encoders))
 
-            if model_type == "GINE":
-                if residual:
-                    self.res = nn.Linear(in_channels, hidden_channels, bias=False)
+            if self.model_type == "GINE":
+                if self.residual:
+                    self.res = nn.Linear(in_channels, self.hidden_channels, bias=False)
                 else:
-                    self.register_parameter("res", None)
+                    self.res = None
 
                 # GINE convolution
                 gin_nn = nn.Sequential(
                     nn.Linear(
-                        in_channels if i == 0 else hidden_channels, hidden_channels
+                        in_channels if i == 0 else self.hidden_channels,
+                        self.hidden_channels,
                     ),
-                    nn.Dropout(dropout),
+                    nn.Dropout(self.dropout),
                     self.activation,
-                    nn.Linear(hidden_channels, hidden_channels),
                 )
-                self.layers.append(GINEConv(gin_nn, edge_dim=hidden_channels))
-            elif model_type == "GATv2":
+
+                self.layers.append(GINEConv(gin_nn, edge_dim=current_edge_dim))
+            elif self.model_type == "GATv2":
                 self.layers.append(
                     GATv2Conv(
-                        in_channels if i == 0 else hidden_channels * heads,
-                        hidden_channels,
-                        heads=heads,
-                        edge_dim=edge_dim,
-                        dropout=dropout,
-                        residual=residual,
+                        in_channels
+                        if i == 0
+                        else self.hidden_channels * self.heads
+                        if self.concat
+                        else self.hidden_channels,
+                        self.hidden_channels,
+                        concat=True,
+                        heads=self.heads,
+                        edge_dim=current_edge_dim,
+                        dropout=self.dropout,
+                        residual=self.residual,
+                    )
+                )
+            elif self.model_type == "Transformer":
+                self.layers.append(
+                    TransformerConv(
+                        in_channels
+                        if i == 0
+                        else self.hidden_channels * self.heads
+                        if self.concat
+                        else self.hidden_channels,
+                        self.hidden_channels,
+                        self.heads,
+                        self.concat,
+                        dropout=self.dropout,
+                        edge_dim=current_edge_dim,
                     )
                 )
             else:
-                raise ValueError(f"Unsupported model type: {model_type}")
+                raise ValueError(f"Unsupported model type: {self.model_type}")
 
         # Classifier configuration
-        classifier_input_dim = hidden_channels * heads
+        classifier_input_dim = (
+            self.hidden_channels * self.heads if self.concat else self.hidden_channels
+        )
 
-        if use_classifier_mlp and classifier_mlp_dims:
+        if self.use_classifier_mlp:
             classifier_layers = []
             current_dim = classifier_input_dim
-            for dim in classifier_mlp_dims:
-                classifier_layers.append(nn.Linear(current_dim, dim))
-                classifier_layers.append(self.activation)
-                current_dim = dim
+            for _ in range(self.classifier_mlp_layers):
+                classifier_layer = nn.Sequential(
+                    nn.Linear(current_dim, self.classifier_mlp_channels),
+                    nn.Dropout(self.dropout),
+                    self.activation,
+                )
+                classifier_layers.append(classifier_layer)
+                current_dim = self.classifier_mlp_channels
             classifier_layers.append(nn.Linear(current_dim, out_channels))
             self.classifier = nn.Sequential(*classifier_layers)
         else:
@@ -116,21 +151,20 @@ class GNNModel(nn.Module):
             data.edge_attr,
             data.batch,
         )
-        if hasattr(self, "res"):
-            res = self.res(x)
+        if hasattr(self, "res") and self.res is not None:
+            x_res = self.res(x)
         else:
-            res = None
+            x_res = None
 
         for i, layer in enumerate(self.layers):
-            # Process layer
-            edge_attr = self.per_layer_edge_encoders[i](edge_attr)
+            if self.use_edge_encoders:
+                edge_attr = self.edge_encoders[i](edge_attr)
             x = layer(x, edge_index, edge_attr)
-            if res is not None:
-                x = x + res
-
+            if x_res is not None:
+                x = x + x_res
             # Apply activation
             x = self.activation(x)
-
         # Global pooling and classification
         x = global_mean_pool(x, batch)
-        return self.classifier(x)
+        x = self.classifier(x)
+        return x
