@@ -3,6 +3,7 @@ seed: 42
 device: "cuda"
 optimize: True
 per_dataset: True
+use_kfold: False
 
 model:
   type: "GATv2" # Model architectures to test

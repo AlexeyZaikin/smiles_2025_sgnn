@@ -6,6 +6,7 @@ import json
 import torch
 from tqdm.auto import tqdm
 import numpy as np
+from sklearn.model_selection import train_test_split
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import torch.nn as nn
@@ -116,22 +117,108 @@ def objective(
     # just a debug
     logger.info(f"Current trial cfg: {trial_cfg}")
 
-    # Cross-validation
-    cv_scores = []
-    skf = StratifiedKFold(
-        n_splits=trial_cfg.training.cv_folds, shuffle=True, random_state=trial_cfg.seed
-    )
-    labels = [data.y for data in full_data]
+    if cfg.use_kfold:
+        # Cross-validation
+        cv_scores = []
+        skf = StratifiedKFold(
+            n_splits=trial_cfg.training.cv_folds,
+            shuffle=True,
+            random_state=trial_cfg.seed,
+        )
+        labels = [data.y for data in full_data]
 
-    for fold, (train_idx, val_idx) in tqdm(
-        enumerate(skf.split(full_data, labels)), desc="CV Fold"
-    ):
+        for fold, (train_idx, val_idx) in tqdm(
+            enumerate(skf.split(full_data, labels)), desc="CV Fold"
+        ):
+            fold_log_dir = trial_log_dir / f"fold_{fold}"
+            fold_log_dir.mkdir(exist_ok=True)
+
+            # Create data loaders
+            train_loader = DataLoader(
+                [full_data[i] for i in train_idx],
+                shuffle=True,
+                batch_size=trial_cfg.training.batch_size,
+                num_workers=1,
+                pin_memory=True,
+            )
+            val_loader = DataLoader(
+                [full_data[i] for i in val_idx],
+                batch_size=trial_cfg.training.batch_size,
+                num_workers=1,
+                pin_memory=True,
+            )
+
+            # Initialize model
+            model = GNNModel(
+                trial_cfg,
+                in_channels=full_data[0].x.shape[-1],
+            ).to(torch.device(trial_cfg.device))
+
+            # Optimizer and scheduler
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=trial_cfg.training.learning_rate,
+                weight_decay=trial_cfg.training.weight_decay,
+            )
+            scheduler = ReduceLROnPlateau(
+                optimizer,
+                mode="max",
+                patience=trial_cfg.training.lr_patience,
+                factor=trial_cfg.training.lr_factor,
+            )
+            criterion = nn.CrossEntropyLoss()
+
+            # Trainer setup
+            trainer = GNNTrainer(trial_cfg, device=trial_cfg.device)
+
+            try:
+                # Training
+                history, model = trainer.train(
+                    model,
+                    train_loader,
+                    val_loader,
+                    optimizer,
+                    criterion,
+                    scheduler,
+                    logger,
+                    tb_writer,
+                    fold_log_dir,
+                )
+                logger.info(
+                    f"Finished training for fold {fold}. Current history is being saved."
+                )
+                with open(fold_log_dir / "history.json", "w") as f:
+                    json.dump(history, f)
+
+                # Validation metrics
+                val_metrics = trainer.evaluate(model, val_loader, criterion)
+                cv_scores.append(val_metrics["roc_auc"])
+
+                # Report intermediate result
+                trial.report(val_metrics["roc_auc"], fold)
+
+                # Handle pruning
+                if trial.should_prune():
+                    raise optuna.TrialPruned()
+
+            except Exception as e:
+                logger.error(f"Training failed: {traceback.format_exc(e)}")
+                cv_scores.append(0.0)
+
+        # Clean up
+        tb_writer.close()
+        return np.mean(cv_scores)
+    else:
+        fold = 0
         fold_log_dir = trial_log_dir / f"fold_{fold}"
         fold_log_dir.mkdir(exist_ok=True)
-
+        labels = [data.y for data in full_data]
+        train_idx, val_idx = train_test_split(
+            np.arange(len(labels), train_size=0.9, stratify=labels)
+        )
         # Create data loaders
         train_loader = DataLoader(
-            [full_data[i] for i in train_idx],
+            [full_data[i] for i in val_idx],
             shuffle=True,
             batch_size=trial_cfg.training.batch_size,
             num_workers=1,
@@ -180,15 +267,13 @@ def objective(
                 tb_writer,
                 fold_log_dir,
             )
-            logger.info(
-                f"Finished training for fold {fold}. Current history is being saved."
-            )
+            logger.info("Finished training. Current history is being saved.")
             with open(fold_log_dir / "history.json", "w") as f:
                 json.dump(history, f)
 
             # Validation metrics
             val_metrics = trainer.evaluate(model, val_loader, criterion)
-            cv_scores.append(val_metrics["roc_auc"])
+            score = val_metrics["roc_auc"]
 
             # Report intermediate result
             trial.report(val_metrics["roc_auc"], fold)
@@ -199,11 +284,10 @@ def objective(
 
         except Exception as e:
             logger.error(f"Training failed: {traceback.format_exc(e)}")
-            cv_scores.append(0.0)
+            score = 0.0
 
-    # Clean up
-    tb_writer.close()
-    return np.mean(cv_scores)
+        tb_writer.close()
+        return score
 
 
 def main_loop(cfg: DictConfig, selected_data, base_dir):
@@ -362,6 +446,7 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
 
             # Close resources
             tb_writer.close()
+
 
 @hydra.main(config_path="conf", config_name="config", version_base="1.3")
 def main(cfg: DictConfig) -> None:
