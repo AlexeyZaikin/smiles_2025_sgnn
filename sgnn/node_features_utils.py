@@ -1,5 +1,6 @@
 import torch
 import networkx as nx
+from tqdm.auto import tqdm
 
 
 def add_node_features(graphs):
@@ -7,7 +8,7 @@ def add_node_features(graphs):
     for data_type in ["train", "test"]:
         new_graphs = []
 
-        for graph in graphs[data_type]:
+        for graph in tqdm(graphs[data_type], desc='Adding node features'):
             graph = graph.clone()
 
             edge_index = graph.edge_index.cpu().numpy()

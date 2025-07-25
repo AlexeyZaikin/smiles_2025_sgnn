@@ -41,7 +41,7 @@ class GNNTrainer:
         """Efficient training loop with autocast"""
         model.train()
         total_loss = 0
-        all_probs, all_labels = [], []
+        all_probs, all_labels, dataset_names = [], [], []
 
         for batch in loader:
             batch = batch.to(self.device)
@@ -61,6 +61,7 @@ class GNNTrainer:
             probs = F.softmax(out, dim=1).detach().cpu()
             all_probs.append(probs)
             all_labels.append(batch.y.cpu())
+            dataset_names.append(batch.dataset_name)
 
         all_probs = torch.cat(all_probs)
         all_labels = torch.cat(all_labels)
@@ -70,10 +71,11 @@ class GNNTrainer:
     def evaluate(
         self, model: nn.Module, loader: DataLoader, criterion: nn.Module
     ) -> Dict[str, float]:
-        """Comprehensive model evaluation"""
+        """Comprehensive model evaluation with per-dataset metrics"""
         model.eval()
         total_loss = 0
         all_probs, all_preds, all_labels = [], [], []
+        all_dataset_names = []  # Track dataset names
 
         for batch in loader:
             batch = batch.to(self.device)
@@ -81,19 +83,43 @@ class GNNTrainer:
             loss = criterion(out, batch.y.long())
 
             total_loss += loss.item() * batch.num_graphs
-            probs = F.softmax(out, dim=1).cpu()
+            probs = out.detach().cpu()
             preds = probs.argmax(dim=1)
 
             all_probs.append(probs)
             all_preds.append(preds)
             all_labels.append(batch.y.cpu())
+            all_dataset_names.extend(batch.dataset_name)  # Collect dataset names
 
         all_probs = torch.cat(all_probs)
         all_preds = torch.cat(all_preds)
         all_labels = torch.cat(all_labels)
 
-        metrics = self._compute_metrics(all_probs, all_preds, all_labels)
-        metrics["loss"] = total_loss / len(loader.dataset)
+        # Compute global metrics
+        global_metrics = self._compute_metrics(all_probs, all_preds, all_labels)
+        # print(global_metrics["f1"])
+        metrics = {
+            **global_metrics,
+            "loss": total_loss / len(loader.dataset),
+            "global": global_metrics,
+            "per_dataset": {},
+        }
+
+        # Compute per-dataset metrics
+        unique_datasets = set(all_dataset_names)
+        for dataset in unique_datasets:
+            mask = [ds == dataset for ds in all_dataset_names]
+            dataset_probs = all_probs[mask]
+            dataset_preds = all_preds[mask]
+            dataset_labels = all_labels[mask]
+
+            if len(dataset_probs) > 0:  # Only compute if data exists
+                dataset_metrics = self._compute_metrics(
+                    dataset_probs, dataset_preds, dataset_labels
+                )
+                metrics["per_dataset"][dataset] = dataset_metrics
+
+        # print(metrics["per_dataset"])
         return metrics
 
     def _compute_metrics(
@@ -103,6 +129,9 @@ class GNNTrainer:
         labels_np = labels.numpy()
         probs_np = probs.numpy()
         preds_np = preds.numpy()
+
+        # print("labels", labels_np, "preds", preds_np)
+        # print("f1", f1_score(labels_np, preds_np))
 
         metrics = {
             "accuracy": (preds_np == labels_np).mean(),
@@ -123,9 +152,12 @@ class GNNTrainer:
         except ValueError:
             metrics["roc_auc"] = 0.5
 
-        # Precision-Recall AUC
-        precision, recall, _ = precision_recall_curve(labels_np, probs_np[:, 1])
-        metrics["pr_auc"] = auc(recall, precision)
+        try:
+            # Precision-Recall AUC
+            precision, recall, _ = precision_recall_curve(labels_np, probs_np[:, 1])
+            metrics["pr_auc"] = auc(recall, precision)
+        except ValueError:
+            metrics["pr_auc"] = 0.5
 
         return metrics
 
@@ -163,7 +195,7 @@ class GNNTrainer:
             val_metrics = self.evaluate(model, val_loader, criterion)
 
             # Update learning rate scheduler
-            scheduler.step(val_metrics["f1"])
+            scheduler.step(val_metrics["roc_auc"])
 
             # Track history
             history["epoch"].append(epoch)
@@ -175,6 +207,8 @@ class GNNTrainer:
             history["val_roc_auc"].append(val_metrics["roc_auc"])
             history["val_f1"].append(val_metrics["f1"])
             history["lr"].append(optimizer.param_groups[0]["lr"])
+            history["train_metrics"].append(train_metrics)
+            history["val_metrics"].append(val_metrics)
 
             # TensorBoard logging
             tb_writer.add_scalar("train/Loss", train_loss, epoch)
@@ -197,9 +231,9 @@ class GNNTrainer:
                     },
                     log_dir / "best_model.pth",
                 )
-                logger.info(
-                    f"New best model at epoch {epoch}: ROC-AUC = {best_val_roc_auc:.4f}"
-                )
+                # logger.info(
+                #     f"New best model at epoch {epoch}: ROC-AUC = {best_val_roc_auc:.4f}"
+                # )
             else:
                 early_stop_counter += 1
                 if early_stop_counter >= patience:
@@ -214,10 +248,8 @@ class GNNTrainer:
                     f"LR: {history['lr'][-1]:.6f} | "
                     f"Train Loss: {train_loss:.4f} | "
                     f"Val Loss: {val_metrics['loss']:.4f} | "
-                    f"Val F1: {val_metrics['f1']:.4f} |"
                     f"Val ROC-AUC: {val_metrics['roc_auc']:.4f}"
                 )
-
         # Load best model
         checkpoint = torch.load(log_dir / "best_model.pth")
         model.load_state_dict(checkpoint["model_state_dict"])

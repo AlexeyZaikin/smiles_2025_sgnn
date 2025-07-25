@@ -1,71 +1,72 @@
 # Base configuration
 seed: 42
-device: "mps"
+device: "cuda"
+optimize: False
 
 model:
   type: "GATv2" # Model architectures to test
-  activation: "relu" # Default activation
-  hidden_channels: 32 # Default hidden dimension
-  num_layers: 1 # Default number of layers
-  dropout: 0.3 # Default dropout rate
+  activation: "leaky_relu" # Default activation
+  hidden_channels: 128 # Default hidden dimension
+  num_layers: 3 # Default number of layers
+  dropout: 0.2 # Default dropout rate
   residual: True
-  heads: 1
+  heads: 3
   concat: True
-  use_edge_encoder: False
+  use_edge_encoder: True
   edge_encoder_channels: 16
-  edge_encoder_layers: 1
-  use_classifier_mlp: False
-  classifier_mlp_channels: 16
-  classifier_mlp_layers: 1
+  edge_encoder_layers: 2
+  use_classifier_mlp: True
+  classifier_mlp_channels: 64
+  classifier_mlp_layers: 2
 
 # Training configuration
 training:
   learning_rate: 1e-3
-  batch_size: 32
-  max_epochs: 32
-  patience: 16
-  lr_patience: 4
+  batch_size: 256
+  max_epochs: 256
+  patience: 32
+  lr_patience: 8
   lr_factor: 0.5
   weight_decay: 1e-5
   cv_folds: 3
-  mixed_precision: False
-  log_interval: 16
+  mixed_precision: True
+  log_interval: 4
 
 # Hyperparameter search space
 hparams:
   # model_type: ['GCN', 'GATv2', 'Transformer', 'GINE']
-  model_type: ["GCN", "GATv2"]
+  model_type: ["GATv2"]
   activation:
-    options: ["tanh", "leaky_relu"]
+    options: ["leaky_relu", "tanh", 'relu']
   hidden_channels:
-    min: 4
-    max: 512
+    min: 64
+    max: 256
   num_layers:
     min: 1
-    max: 4
+    max: 3
   dropout:
     min: 0.01
-    max: 0.5
+    max: 0.8
   residual:
     options: [True, False]
   heads:
     min: 1
-    max: 5
+    max: 3
   concat:
     options: [True, False]
   use_edge_encoder:
     options: [True, False]
   edge_encoder_channels:
-    min: 4
-    max: 128
+    min: 16
+    max: 64
   edge_encoder_layers:
     min: 1
     max: 2
   use_classifier_mlp:
     options: [True, False]
   classifier_mlp_channels:
-    min: 4
-    max: 128
+    min: 16
+    max: 64
   classifier_mlp_layers:
     min: 1
     max: 3
@@ -75,14 +76,14 @@ hparams:
 
 # Optuna configuration
 optuna:
-  n_trials: 16
-  n_startup_trials: 2
+  n_trials: 4
+  n_startup_trials: 1
   n_warmup_steps: 4
   timeout: 86400 # 24 hours in seconds
 
 data:
   dataset_path: "data/tabular/processed_graphs.pkl"
-  datasets: ["blood", "breastCancer", "climate", "Cryotherapy", "Banknote"]
-  trial_idx: null
+  datasets: null
+  trial_idx: null 
   sparsify: null
   node_features: null

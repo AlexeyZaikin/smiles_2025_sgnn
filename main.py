@@ -1,6 +1,8 @@
 from datetime import datetime
 from itertools import product
 import pickle
+import traceback
+import json
 import torch
 from tqdm.auto import tqdm
 import numpy as np
@@ -130,6 +132,7 @@ def objective(
         # Create data loaders
         train_loader = DataLoader(
             [full_data[i] for i in train_idx],
+            shuffle=True,
             batch_size=trial_cfg.training.batch_size,
             num_workers=1,
             pin_memory=True,
@@ -166,7 +169,7 @@ def objective(
 
         try:
             # Training
-            trainer.train(
+            history, model = trainer.train(
                 model,
                 train_loader,
                 val_loader,
@@ -177,6 +180,11 @@ def objective(
                 tb_writer,
                 fold_log_dir,
             )
+            logger.info(
+                f"Finished training for fold {fold}. Current history is being saved."
+            )
+            with open(fold_log_dir / "history.json", "w") as f:
+                json.dump(history, f)
 
             # Validation metrics
             val_metrics = trainer.evaluate(model, val_loader, criterion)
@@ -190,7 +198,7 @@ def objective(
                 raise optuna.TrialPruned()
 
         except Exception as e:
-            logger.error(f"Training failed: {str(e)}")
+            logger.error(f"Training failed: {traceback.format_exc(e)}")
             cv_scores.append(0.0)
 
     # Clean up
@@ -209,52 +217,59 @@ def main(cfg: DictConfig) -> None:
     dataset_path = cfg.data.dataset_path
     dataset_names = cfg.data.datasets
     all_data = pickle.load(open(dataset_path, "rb"))
+    selected_data = {"train": [], "test": []}
+    if dataset_names:
+        for dataset_name in tqdm(dataset_names, desc='Loading datasets'):
+            data = all_data[dataset_name]
+            selected_data["train"].extend(data["train"])
+            selected_data["test"].extend(data["test"])
+    else:
+        for dataset_name in tqdm(all_data, desc='Loading ALL datasets'):
+            data = all_data[dataset_name]
+            selected_data["train"].extend(data["train"])
+            selected_data["test"].extend(data["test"])
 
-    for dataset_name in dataset_names:
-        data = all_data[dataset_name]
-        dataset_dir = base_dir / dataset_name
-        dataset_dir.mkdir(parents=True, exist_ok=True)
+    # sparsify and add node features
+    p_list = [0.8, 0.7, 0.3]
+    sparsify_functions_list = get_sparsify_f_list(p_list)
+    for trial_idx, (sparsify_tuple, node_features) in tqdm(
+        enumerate(product(sparsify_functions_list, [True, False]))
+    , desc='Sparsifying'):
+        sparsify_name = sparsify_tuple[0]
+        sparsify_f = sparsify_tuple[1]
+        data = sparsify_f(selected_data)
+        if node_features:
+            data = add_node_features(data)
 
-        # sparsify and add node features
-        p_list = [0.8, 0.7, 0.3]
-        sparsify_functions_list = get_sparsify_f_list(p_list)
-        for trial_idx, (sparsify_tuple, node_features) in enumerate(
-            product(sparsify_functions_list, [True, False])
-        ):
-            sparsify_name = sparsify_tuple[0]
-            sparsify_f = sparsify_tuple[1]
-            data = sparsify_f(data)
-            if node_features:
-                data = add_node_features(data)
+        cfg.data.sparsify = sparsify_name  # TODO: proper name for current sparsify
+        cfg.data.node_features = node_features
+        cfg.data.trial_idx = trial_idx
 
-            cfg.data.sparsify = sparsify_name  # TODO: proper name for current sparsify
-            cfg.data.node_features = node_features
-            cfg.data.trial_idx = trial_idx
+        # Prepare data
+        train_data = data["train"]
+        test_data = data["test"]
+        full_data = train_data  # For cross-validation
 
-            # Prepare data
-            train_data = data["train"]
-            test_data = data["test"]
-            full_data = train_data  # For cross-validation
+        for model_type in cfg.hparams.model_type:
+            model_dir = (
+                base_dir
+                / model_type
+                / cfg.data.sparsify
+                / f"node_features_{cfg.data.node_features}"
+            )
+            model_dir.mkdir(parents=True, exist_ok=True)
 
-            for model_type in cfg.hparams.model_type:
-                model_dir = (
-                    dataset_dir
-                    / model_type
-                    / cfg.data.sparsify
-                    / f"node_features_{cfg.data.node_features}"
-                )
-                model_dir.mkdir(parents=True, exist_ok=True)
+            # Set up logging
+            logger, tb_writer = setup_logging(model_dir)
+            logger.info(
+                f"Starting experiment: {model_type}/{cfg.data.sparsify}/node_features_{cfg.data.node_features}"
+            )
 
-                # Set up logging
-                logger, tb_writer = setup_logging(model_dir)
-                logger.info(
-                    f"Starting experiment: {dataset_name}/{model_type}/{cfg.data.sparsify}/node_features_{cfg.data.node_features}"
-                )
+            # Update config for current experiment
+            cfg.model.type = model_type
 
-                # Update config for current experiment
-                cfg.model.type = model_type
-
-                try:
+            try:
+                if cfg.optimize:
                     # Optuna hyperparameter optimization
                     study = optuna.create_study(
                         direction="maximize",
@@ -281,80 +296,89 @@ def main(cfg: DictConfig) -> None:
                     cfg.model.update(best_params.get("model", {}))
                     cfg.training.update(best_params.get("training", {}))
 
-                    # Data loaders
-                    train_loader = DataLoader(
-                        train_data,
-                        batch_size=cfg.training.batch_size,
-                        num_workers=1,
-                        pin_memory=True,
-                    )
-                    test_loader = DataLoader(
-                        test_data,
-                        batch_size=cfg.training.batch_size,
-                        num_workers=1,
-                        pin_memory=True,
-                    )
+                # Data loaders
+                train_loader = DataLoader(
+                    train_data,
+                    shuffle=True,
+                    batch_size=cfg.training.batch_size,
+                    num_workers=1,
+                    pin_memory=True,
+                )
+                test_loader = DataLoader(
+                    test_data,
+                    batch_size=cfg.training.batch_size,
+                    num_workers=1,
+                    pin_memory=True,
+                )
 
-                    # Initialize model
-                    model = GNNModel(
-                        cfg,
-                        in_channels=train_data[0].x.shape[-1],
-                    ).to(torch.device(cfg.device))
+                # Initialize model
+                model = GNNModel(
+                    cfg,
+                    in_channels=train_data[0].x.shape[-1],
+                ).to(torch.device(cfg.device))
 
-                    # Optimizer and scheduler
-                    optimizer = torch.optim.AdamW(
-                        model.parameters(),
-                        lr=cfg.training.learning_rate,
-                        weight_decay=cfg.training.weight_decay,
-                    )
-                    scheduler = ReduceLROnPlateau(
+                # Optimizer and scheduler
+                optimizer = torch.optim.AdamW(
+                    model.parameters(),
+                    lr=cfg.training.learning_rate,
+                    weight_decay=cfg.training.weight_decay,
+                )
+                scheduler = ReduceLROnPlateau(
+                    optimizer,
+                    mode="max",
+                    patience=cfg.training.lr_patience,
+                    factor=cfg.training.lr_factor,
+                )
+                criterion = nn.CrossEntropyLoss()
+
+                try:
+                    # Train final model
+                    trainer = GNNTrainer(cfg, device=cfg.device)
+                    history, model = trainer.train(
+                        model,
+                        train_loader,
+                        test_loader,
                         optimizer,
-                        mode="max",
-                        patience=cfg.training.lr_patience,
-                        factor=cfg.training.lr_factor,
+                        criterion,
+                        scheduler,
+                        logger,
+                        tb_writer,
+                        model_dir,
                     )
-                    criterion = nn.CrossEntropyLoss()
 
-                    try:
-                        # Train final model
-                        trainer = GNNTrainer(cfg, device=cfg.device)
-                        history, model = trainer.train(
-                            model,
-                            train_loader,
-                            test_loader,
-                            optimizer,
-                            criterion,
-                            scheduler,
-                            logger,
-                            tb_writer,
-                            model_dir,
+                    # Final evaluation
+                    test_metrics = trainer.evaluate(model, test_loader, criterion)
+
+                    # Log results
+                    logger.info(f"\n{'=' * 50}")
+                    logger.info(f"FINAL RESULTS: model_type={model_type}")
+                    logger.info(f"Global Test ROC-AUC: {test_metrics['roc_auc']:.4f}")
+                    logger.info(f"Global Test F1: {test_metrics['f1']:.4f}")
+                    # Log per-dataset metrics
+                    logger.info("\nPer-dataset metrics:")
+                    for dataset, metrics_dict in test_metrics["per_dataset"].items():
+                        logger.info(
+                            f"{dataset}: ROC-AUC={metrics_dict['roc_auc']:.4f} | "
+                            f"F1={metrics_dict['f1']:.4f} | "
+                            f"Accuracy={metrics_dict['accuracy']:.4f}"
                         )
 
-                        # Final evaluation
-                        test_metrics = trainer.evaluate(model, test_loader, criterion)
+                    logger.info("=" * 50)
 
-                        # Log results
-                        logger.info(f"\n{'=' * 50}")
-                        logger.info(f"FINAL RESULTS: {dataset_name}/{model_type}")
-                        logger.info(f"Activation: {cfg.model.activation}")
-                        logger.info(f"Test ROC-AUC: {test_metrics['roc_auc']:.4f}")
-                        logger.info(f"Test F1: {test_metrics['f1']:.4f}")
-                        logger.info(f"Test Accuracy: {test_metrics['accuracy']:.4f}")
-                        logger.info(f"Test PR-AUC: {test_metrics['pr_auc']:.4f}")
-                        logger.info("=" * 50)
-
-                        # Visualizations
-                        plot_metrics(history, model_dir)
-                    except Exception as e:
-                        logger.error(
-                            f"Error in {dataset_name}/{model_type} during final model training:",
-                            e,
-                        )
+                    # Visualizations
+                    plot_metrics(history, model_dir)
                 except Exception as e:
-                    logger.error(f"Error in {dataset_name}/{model_type}:", e)
+                    logger.error(
+                        f"Error in {model_type} during final model training:\n{traceback.format_exc(e)}",
+                    )
 
-                # Close resources
-                tb_writer.close()
+            except Exception as e:
+                logger.error(
+                    f"Error in {model_type}:\n{traceback.format_exc(e)}",
+                )
+
+            # Close resources
+            tb_writer.close()
 
 
 if __name__ == "__main__":

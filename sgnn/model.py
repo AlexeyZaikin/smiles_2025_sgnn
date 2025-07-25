@@ -6,6 +6,7 @@ from torch_geometric.nn import (
     global_mean_pool,
     TransformerConv,
     GCNConv,
+    GraphSizeNorm,
 )
 import torch.nn as nn
 import warnings
@@ -28,6 +29,7 @@ class GNNModel(nn.Module):
         self.cfg = cfg
         self.layers = nn.ModuleList()
         self.edge_encoders = nn.ModuleList()
+        self.norm = GraphSizeNorm()
 
         # Initialize from configuration
         self.model_type = cfg.model.type
@@ -38,7 +40,11 @@ class GNNModel(nn.Module):
         self.residual = cfg.model.get("residual", False)
         self.heads = cfg.model.get("heads", 1)
         self.concat = cfg.model.get("concat", True)
-        self.use_edge_encoders = cfg.model.get("use_edge_encoders", False)
+        self.use_edge_encoders = (
+            cfg.model.get("use_edge_encoders", False)
+            if self.model_type not in ["GCN"]
+            else False
+        )
         self.edge_encoder_channels = cfg.model.get("edge_encoder_channels", 16)
         self.edge_encoder_layers = cfg.model.get("edge_encoder_layers", 1)
         self.use_classifier_mlp = cfg.model.get("use_classifier_mlp", False)
@@ -144,9 +150,12 @@ class GNNModel(nn.Module):
                 classifier_layers.append(classifier_layer)
                 current_dim = self.classifier_mlp_channels
             classifier_layers.append(nn.Linear(current_dim, out_channels))
+            classifier_layers.append(nn.Softmax())
             self.classifier = nn.Sequential(*classifier_layers)
         else:
-            self.classifier = nn.Linear(classifier_input_dim, out_channels)
+            self.classifier = nn.Sequential(
+                nn.Linear(classifier_input_dim, out_channels), nn.Softmax()
+            )
 
     def _get_activation(self, name: str) -> nn.Module:
         """Automatically select activation function"""
@@ -177,11 +186,14 @@ class GNNModel(nn.Module):
         for i, layer in enumerate(self.layers):
             if self.use_edge_encoders:
                 edge_attr = self.edge_encoders[i](edge_attr)
+            if self.model_type == "GCN":
+                edge_attr[edge_attr < 0] = 0
             x = layer(x, edge_index, edge_attr)
-            if x_res is not None:
-                x = x + x_res
+            x = self.norm(x, batch)
             # Apply activation
             x = self.activation(x)
+            if x_res is not None:
+                x = x + x_res
         # Global pooling and classification
         x = global_mean_pool(x, batch)
         x = self.classifier(x)

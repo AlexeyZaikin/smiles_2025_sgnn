@@ -11,7 +11,7 @@ def no_sparsify(graphs):
         new_graphs = []
         for g in graph_list:
             g = g.clone()
-            g.edge_attr = (g.edge_attr.squeeze() - 0.5).unsqueeze(1)
+            # g.edge_attr = (g.edge_attr.squeeze() - 0.5).unsqueeze(1)
             new_graphs.append(g)
         graph_data[split] = new_graphs
 
@@ -27,7 +27,7 @@ def sparsify_p(graphs, p):
         for graph in graphs[data_type]:
             graph = graph.clone()
             edge_attr = graph.edge_attr.squeeze()
-            edge_attr = edge_attr - 0.5
+            # edge_attr = edge_attr - 0.5
             num_edges_to_keep = int(np.ceil(len(edge_attr) * p))
             abs_weights = edge_attr.abs()
             threshold = torch.topk(
@@ -52,7 +52,7 @@ def sparsify_knn(graphs, p):
             graph = graph.clone()
             edge_index = graph.edge_index
             edge_attr = graph.edge_attr.squeeze()
-            edge_attr = edge_attr - 0.5
+            # edge_attr = edge_attr - 0.5
             num_nodes = graph.x.shape[0]
             k = int((num_nodes - 1) * p)
             mask = torch.zeros(edge_attr.size(0), dtype=torch.bool)
@@ -67,7 +67,7 @@ def sparsify_knn(graphs, p):
                 else:
                     mask[idx] = True  # если рёбер меньше или равно k — оставить все
 
-            edge_attr[~mask] = 0.0
+            edge_attr[~mask] = 1e-5
             graph.edge_attr = edge_attr.unsqueeze(1)
             new_graphs.append(graph)
 
@@ -85,7 +85,7 @@ def sparsify_min_connected(graphs):
             graph = graph.clone()
             edge_index = graph.edge_index
             edge_attr = graph.edge_attr.squeeze()
-            edge_attr = edge_attr - 0.5
+            # edge_attr = edge_attr - 0.5
             abs_weights = edge_attr.abs()
             unique_weights = torch.unique(abs_weights)
             unique_weights, _ = torch.sort(unique_weights)
@@ -124,9 +124,12 @@ def sparsify_min_connected(graphs):
 def get_sparsify_f_list(p_list=[0.3, 0.5, 0.8]):
     f_list = (
         [("no_sparsify", no_sparsify)]
-        + [(f"sparsify_p_{p_val}", partial(sparsify_p, p=p_val)) for p_val in p_list]
         + [
-            (f"sparsify_knn_{p_val}", partial(sparsify_knn, p=p_val))
+            (f"sparsify_p_{p_val}".replace(".", "_"), partial(sparsify_p, p=p_val))
+            for p_val in p_list
+        ]
+        + [
+            (f"sparsify_knn_{p_val}".replace(".", "_"), partial(sparsify_knn, p=p_val))
             for p_val in p_list
         ]
         + [("sparsify_min_connected", sparsify_min_connected)]
