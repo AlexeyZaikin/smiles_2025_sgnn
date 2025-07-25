@@ -214,7 +214,7 @@ def objective(
         fold_log_dir.mkdir(exist_ok=True)
         labels = [data.y for data in full_data]
         train_idx, val_idx = train_test_split(
-            np.arange(len(labels), train_size=0.9, stratify=labels)
+            np.arange(len(labels)), train_size=0.9, stratify=labels
         )
         # Create data loaders
         train_loader = DataLoader(
