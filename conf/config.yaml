@@ -1,0 +1,57 @@
+# Base configuration
+seed: 42
+device: "mps"
+
+# Model configuration
+model:
+  types: ["GATv2", "GINE"] # Model architectures to test
+  activation: "leaky_relu" # Default activation
+  hidden_channels: 32 # Default hidden dimension
+  num_layers: 1 # Default number of layers
+  dropout: 0.3 # Default dropout rate
+
+# Training configuration
+training:
+  batch_size: 128
+  max_epochs: 512
+  patience: 32
+  lr_patience: 10
+  lr_factor: 0.5
+  weight_decay: 1e-5
+  cv_folds: 3
+  mixed_precision: True
+  log_interval: 20
+
+# Hyperparameter search space
+hparams:
+  activation:
+    options: ["relu", "leaky_relu"]
+  hidden_channels:
+    min: 4
+    max: 256
+  num_layers:
+    min: 1
+    max: 4
+  dropout:
+    min: 0.0
+    max: 0.5
+  heads:
+    min: 1
+    max: 5
+  learning_rate:
+    min: 1e-5
+    max: 1e-3
+  use_classifier_mlp:
+    options: [True, False]
+  classifier_mlp_dims:
+    options: [[32], [64], [32, 16], [64, 32]]
+
+# Optuna configuration
+optuna:
+  n_trials: 128
+  n_startup_trials: 10
+  n_warmup_steps: 5
+  timeout: 86400 # 24 hours in seconds
+
+data:
+  dataset_path: "data/tabular/processed_graphs.pkl"

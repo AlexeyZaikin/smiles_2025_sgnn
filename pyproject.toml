@@ -1,0 +1,21 @@
+[project]
+name = "smiles-project"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "ipykernel>=6.30.0",
+    "ipywidgets>=8.1.7",
+    "matplotlib>=3.10.3",
+    "numpy>=2.3.1",
+    "pandas>=2.3.1",
+    "polars>=1.31.0",
+    "safetensors>=0.5.3",
+    "scikit-learn>=1.7.1",
+    "seaborn>=0.13.2",
+    "tensorboard>=2.20.0",
+    "torch>=2.7.1",
+    "torch-geometric>=2.6.1",
+    "tqdm>=4.67.1",
+]
