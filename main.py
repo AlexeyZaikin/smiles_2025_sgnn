@@ -1,6 +1,7 @@
 from datetime import datetime
 import pickle
 import torch
+from tqdm.auto import tqdm
 import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
@@ -85,7 +86,9 @@ def objective(
     )
     labels = [data.y for data in full_data]
 
-    for fold, (train_idx, val_idx) in enumerate(skf.split(full_data, labels)):
+    for fold, (train_idx, val_idx) in tqdm(
+        enumerate(skf.split(full_data, labels)), desc="CV Fold"
+    ):
         fold_log_dir = trial_log_dir / f"fold_{fold}"
         fold_log_dir.mkdir(exist_ok=True)
 
@@ -169,11 +172,11 @@ def main(cfg: DictConfig) -> None:
 
     # Load datasets
     dataset_path = cfg.data.dataset_path
+    dataset_names = cfg.data.datasets
     all_data = pickle.load(open(dataset_path, "rb"))
 
-    for dataset_name, data in all_data.items():
-        if dataset_name != "plrx":
-            continue
+    for dataset_name in dataset_names:
+        data = all_data[dataset_name]
         dataset_dir = base_dir / dataset_name
         dataset_dir.mkdir(parents=True, exist_ok=True)
 

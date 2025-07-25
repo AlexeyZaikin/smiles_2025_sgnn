@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from torch_geometric.loader import DataLoader
 import torch.nn as nn
 import logging
+from tqdm.auto import tqdm
 from sklearn.metrics import (
     roc_auc_score,
     precision_recall_curve,
@@ -147,7 +148,7 @@ class GNNTrainer:
         epochs = self.cfg.training.max_epochs
         patience = self.cfg.training.patience
 
-        for epoch in range(1, epochs + 1):
+        for epoch in tqdm(range(1, epochs + 1), desc="Training model"):
             start_time = time.time()
 
             # Training phase
@@ -176,12 +177,12 @@ class GNNTrainer:
             history["lr"].append(optimizer.param_groups[0]["lr"])
 
             # TensorBoard logging
-            tb_writer.add_scalar("Loss/train", train_loss, epoch)
-            tb_writer.add_scalar("Loss/val", val_metrics["loss"], epoch)
-            tb_writer.add_scalar("ROC-AUC/val", val_metrics["roc_auc"], epoch)
-            tb_writer.add_scalar("Accuracy/val", val_metrics["accuracy"], epoch)
-            tb_writer.add_scalar("F1/val", val_metrics["f1"], epoch)
-            tb_writer.add_scalar("Learning Rate", history["lr"][-1], epoch)
+            tb_writer.add_scalar("train/Loss", train_loss, epoch)
+            tb_writer.add_scalar("val/Loss", val_metrics["loss"], epoch)
+            tb_writer.add_scalar("val/ROC-AUC", val_metrics["roc_auc"], epoch)
+            tb_writer.add_scalar("val/Accuracy", val_metrics["accuracy"], epoch)
+            tb_writer.add_scalar("val/F1", val_metrics["f1"], epoch)
+            tb_writer.add_scalar("train/Learning Rate", history["lr"][-1], epoch)
 
             # Checkpointing
             if val_metrics["roc_auc"] > best_val_roc_auc:

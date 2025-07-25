@@ -18,10 +18,10 @@ model:
 # Training configuration
 training:
   learning_rate: 1e-3
-  batch_size: 512
-  max_epochs: 128
-  patience: 16
-  lr_patience: 8
+  batch_size: 128
+  max_epochs: 32
+  patience: 8
+  lr_patience: 4
   lr_factor: 0.5
   weight_decay: 1e-5
   cv_folds: 3
@@ -59,3 +59,4 @@ optuna:
 
 data:
   dataset_path: "data/tabular/processed_graphs.pkl"
+  datasets: ["plrx", 'spectf', 'liver', 'blood', 'diabetic', 'Immunotherapy', 'spect']
