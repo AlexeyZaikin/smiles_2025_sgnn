@@ -34,7 +34,7 @@ def objective(
     params = {
         "model": {
             "activation": trial.suggest_categorical(
-                "activation", cfg.hparams.activation
+                "activation", cfg.hparams.activation.options
             ),
             "hidden_channels": trial.suggest_int(
                 "hidden_channels",
@@ -67,10 +67,8 @@ def objective(
     if cfg.model.type in ["GCN"]:
         params["model"]["use_edge_encoder"] = False
     else:
-        params["model"]["use_edge_encoder"] = (
-            trial.suggest_categorical(
-                "use_edge_encoder", cfg.hparams.use_edge_encoder.options
-            ),
+        params["model"]["use_edge_encoder"] = trial.suggest_categorical(
+            "use_edge_encoder", cfg.hparams.use_edge_encoder.options
         )
 
     if cfg.model.type in ["GATv2", "Transformer"]:
@@ -112,6 +110,9 @@ def objective(
     trial_log_dir = log_dir / f"trial_{trial.number}"
     trial_log_dir.mkdir(exist_ok=True)
     logger, tb_writer = setup_logging(trial_log_dir)
+
+    # just a debug
+    logger.info(f"Current trial cfg: {trial_cfg}")
 
     # Cross-validation
     cv_scores = []
