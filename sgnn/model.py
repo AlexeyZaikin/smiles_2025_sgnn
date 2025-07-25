@@ -90,7 +90,7 @@ class GNNModel(nn.Module):
                         if self.concat
                         else self.hidden_channels,
                         self.hidden_channels,
-                        concat=True,
+                        concat=self.concat,
                         heads=self.heads,
                         edge_dim=current_edge_dim,
                         dropout=self.dropout,
