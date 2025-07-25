@@ -2,7 +2,7 @@
 seed: 42
 device: "cuda"
 optimize: True
-per_dataset: True
+per_dataset: False
 use_kfold: False
 
 model:
@@ -23,11 +23,11 @@ model:
 
 # Training configuration
 training:
-  learning_rate: 1e-3
+  learning_rate: 1e-2
   batch_size: 512
   max_epochs: 256
-  patience: 24
-  lr_patience: 8
+  patience: 128
+  lr_patience: 32
   lr_factor: 0.5
   weight_decay: 1e-5
   cv_folds: 3
@@ -37,7 +37,7 @@ training:
 # Hyperparameter search space
 hparams:
   # model_type: ['GCN', 'GATv2', 'Transformer', 'GINE']
-  model_type: ["GATv2"]
+  # model_type: ["GATv2", 'GCN']
   activation:
     options: ["leaky_relu", "tanh", 'relu']
   hidden_channels:

@@ -38,7 +38,9 @@ class GNNModel(nn.Module):
         self.num_layers = cfg.model.num_layers
         self.dropout = cfg.model.dropout
         self.residual = cfg.model.get("residual", False)
-        self.heads = cfg.model.get("heads", 1)
+        self.heads = (
+            cfg.model.get("heads", 1) if self.model_type not in ["GCN", "GINE"] else 1
+        )
         self.concat = cfg.model.get("concat", True)
         self.use_edge_encoders = (
             cfg.model.get("use_edge_encoders", False)
