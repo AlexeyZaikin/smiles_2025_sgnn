@@ -83,7 +83,7 @@ class GNNTrainer:
             loss = criterion(out, batch.y.long())
 
             total_loss += loss.item() * batch.num_graphs
-            probs = out.detach().cpu()
+            probs = F.softmax(out, dim=1).detach().cpu()
             preds = probs.argmax(dim=1)
 
             all_probs.append(probs)
@@ -147,17 +147,11 @@ class GNNTrainer:
         }
 
         # ROC-AUC calculation
-        try:
-            metrics["roc_auc"] = roc_auc_score(labels_np, probs_np[:, 1])
-        except ValueError:
-            metrics["roc_auc"] = 0.5
+        metrics["roc_auc"] = roc_auc_score(labels_np, probs_np[:, 1])
 
-        try:
-            # Precision-Recall AUC
-            precision, recall, _ = precision_recall_curve(labels_np, probs_np[:, 1])
-            metrics["pr_auc"] = auc(recall, precision)
-        except ValueError:
-            metrics["pr_auc"] = 0.5
+        # Precision-Recall AUC
+        precision, recall, _ = precision_recall_curve(labels_np, probs_np[:, 1])
+        metrics["pr_auc"] = auc(recall, precision)
 
         return metrics
 
@@ -174,7 +168,7 @@ class GNNTrainer:
         log_dir: Path,
     ) -> Tuple[Dict[str, list], nn.Module]:
         """Training loop with early stopping and checkpointing"""
-        best_val_roc_auc = 0
+        best_val_roc_auc = -999
         early_stop_counter = 0
         history = defaultdict(list)
         epochs = self.cfg.training.max_epochs

@@ -152,12 +152,25 @@ class GNNModel(nn.Module):
                 classifier_layers.append(classifier_layer)
                 current_dim = self.classifier_mlp_channels
             classifier_layers.append(nn.Linear(current_dim, out_channels))
-            classifier_layers.append(nn.Softmax())
             self.classifier = nn.Sequential(*classifier_layers)
         else:
             self.classifier = nn.Sequential(
-                nn.Linear(classifier_input_dim, out_channels), nn.Softmax()
+                nn.Linear(classifier_input_dim, out_channels)
             )
+        
+        # Initialize weights properly
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        """Initialize weights properly to avoid NaN values"""
+        if isinstance(module, nn.Linear):
+            torch.nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, (nn.Conv1d, nn.Conv2d)):
+            torch.nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
 
     def _get_activation(self, name: str) -> nn.Module:
         """Automatically select activation function"""
