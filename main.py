@@ -1,4 +1,4 @@
-from datetime import datetime
+# from datetime import datetime
 from itertools import product
 import pickle
 import traceback
@@ -436,11 +436,11 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
                 plot_metrics(history, model_dir)
             except Exception as e:
                 logger.error(
-                    f"Error in {model_type} during final model training:\n{traceback.format_exc(e)}",
+                    f"Error in {model_type} during final model training:\n{traceback.format_exc()}",
                 )
         except Exception as e:
             logger.error(
-                f"Error in {model_type}:\n{traceback.format_exc(e)}",
+                f"Error in {model_type}:\n{traceback.format_exc()}",
             )
 
         # Close resources
@@ -451,17 +451,17 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
 def main(cfg: DictConfig) -> None:
     """Main experiment runner with Hydra configuration"""
     # Initialize output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_dir = Path.cwd() / "logs" / timestamp
+    # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_dir = Path(cfg.save_path) / "logs" / str(cfg.data.dataset_size)
 
     # Load datasets
-    dataset_path = Path(cfg.data.dataset_path) / "processed_graphs.pkl"
+    dataset_path = Path(cfg.data.dataset_path) / f"csv_{cfg.data.dataset_size}" / "processed_graphs.pkl"
     dataset_names = cfg.data.datasets
     all_data = pickle.load(open(dataset_path, "rb"))
     if cfg.per_dataset:
         if not dataset_names:
             dataset_names = list(all_data.keys())
-        for dataset_name in tqdm(dataset_names):
+        for dataset_name in dataset_names:
             cur_dir = base_dir / dataset_name
             selected_data = all_data[dataset_name]
             main_loop(cfg, selected_data, cur_dir)
