@@ -1,4 +1,3 @@
-from datetime import datetime
 from itertools import product
 import pickle
 import traceback
@@ -138,13 +137,13 @@ def objective(
                 [full_data[i] for i in train_idx],
                 shuffle=True,
                 batch_size=trial_cfg.training.batch_size,
-                num_workers=1,
+                num_workers=0,
                 pin_memory=True,
             )
             val_loader = DataLoader(
                 [full_data[i] for i in val_idx],
                 batch_size=trial_cfg.training.batch_size,
-                num_workers=1,
+                num_workers=0,
                 pin_memory=True,
             )
 
@@ -202,11 +201,14 @@ def objective(
                     raise optuna.TrialPruned()
 
             except Exception as e:
-                logger.error(f"Training failed: {traceback.format_exc(e)}")
+                logger.error(f"Training failed: {traceback.format_exc()}")
                 cv_scores.append(0.0)
 
-        # Clean up
+        # Clean up resources more aggressively
         tb_writer.close()
+        del tb_writer
+        import gc
+        gc.collect()
         return np.mean(cv_scores)
     else:
         fold = 0
@@ -218,16 +220,16 @@ def objective(
         )
         # Create data loaders
         train_loader = DataLoader(
-            [full_data[i] for i in val_idx],
+            [full_data[i] for i in train_idx],
             shuffle=True,
             batch_size=trial_cfg.training.batch_size,
-            num_workers=1,
+            num_workers=0,
             pin_memory=True,
         )
         val_loader = DataLoader(
             [full_data[i] for i in val_idx],
             batch_size=trial_cfg.training.batch_size,
-            num_workers=1,
+            num_workers=0,
             pin_memory=True,
         )
 
@@ -283,10 +285,14 @@ def objective(
                 raise optuna.TrialPruned()
 
         except Exception as e:
-            logger.error(f"Training failed: {traceback.format_exc(e)}")
+            logger.error(f"Training failed: {traceback.format_exc()}")
             score = 0.0
 
+        # Clean up resources more aggressively
         tb_writer.close()
+        del tb_writer
+        import gc
+        gc.collect()
         return score
 
 
@@ -327,9 +333,6 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
             f"Starting experiment: {model_type}/{cfg.data.sparsify}/node_features_{cfg.data.node_features}"
         )
 
-        # Update config for current experiment
-        cfg.model.type = model_type
-
         try:
             if cfg.optimize:
                 # Optuna hyperparameter optimization
@@ -363,13 +366,13 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
                 train_data,
                 shuffle=True,
                 batch_size=cfg.training.batch_size,
-                num_workers=1,
+                num_workers=0,
                 pin_memory=True,
             )
             test_loader = DataLoader(
                 test_data,
                 batch_size=cfg.training.batch_size,
-                num_workers=1,
+                num_workers=0,
                 pin_memory=True,
             )
 
@@ -436,32 +439,35 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
                 plot_metrics(history, model_dir)
             except Exception as e:
                 logger.error(
-                    f"Error in {model_type} during final model training:\n{traceback.format_exc(e)}",
+                    f"Error in {model_type} during final model training:\n{traceback.format_exc()}",
                 )
         except Exception as e:
             logger.error(
-                f"Error in {model_type}:\n{traceback.format_exc(e)}",
+                f"Error in {model_type}:\n{traceback.format_exc()}",
             )
 
-        # Close resources
+        # Close resources more aggressively
         tb_writer.close()
+        del tb_writer
+        import gc
+        gc.collect()
 
 
 @hydra.main(config_path="conf", config_name="config", version_base="1.3")
 def main(cfg: DictConfig) -> None:
     """Main experiment runner with Hydra configuration"""
     # Initialize output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_dir = Path.cwd() / "logs" / timestamp
+    base_dir = Path(cfg.save_path) / "logs" / str(cfg.data.dataset_size)
 
     # Load datasets
-    dataset_path = Path(cfg.data.dataset_path) / "processed_graphs.pkl"
+    dataset_path = Path(cfg.data.dataset_path) / f"csv_{cfg.data.dataset_size}" / "processed_graphs.pkl"
     dataset_names = cfg.data.datasets
-    all_data = pickle.load(open(dataset_path, "rb"))
+    with open(dataset_path, "rb") as f:
+        all_data = pickle.load(f)
     if cfg.per_dataset:
         if not dataset_names:
             dataset_names = list(all_data.keys())
-        for dataset_name in tqdm(dataset_names):
+        for dataset_name in dataset_names:
             cur_dir = base_dir / dataset_name
             selected_data = all_data[dataset_name]
             main_loop(cfg, selected_data, cur_dir)

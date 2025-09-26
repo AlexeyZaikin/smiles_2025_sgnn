@@ -69,11 +69,18 @@ def plot_metrics(history: Dict[str, list], log_dir: Path):
 
 
 def setup_logging(log_dir: Path) -> Tuple[logging.Logger, SummaryWriter]:
-    """Comprehensive logging setup"""
+    """Comprehensive logging setup with unique logger per experiment"""
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    logger = logging.getLogger("gnn_experiment")
+    # Create unique logger name based on log directory path
+    logger_name = f"gnn_experiment_{hash(str(log_dir))}"
+    logger = logging.getLogger(logger_name)
     logger.setLevel(logging.DEBUG)
+
+    # Clear existing handlers to prevent accumulation
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+        handler.close()
 
     # File handler
     file_handler = logging.FileHandler(log_dir / "experiment.log")
