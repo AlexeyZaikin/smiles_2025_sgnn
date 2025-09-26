@@ -1,4 +1,3 @@
-# from datetime import datetime
 import pandas as pd
 import numpy as np
 import xgboost as xgb
@@ -20,6 +19,7 @@ import time
 import csv
 import logging
 import pickle
+import json
 from tqdm.auto import tqdm
 import glob
 
@@ -137,17 +137,40 @@ def grid_search_xgboost(X_train, y_train, logger, cfg=None):
     )
     
     # Fit GridSearch
-    start_time = time.time()
-    grid_search.fit(X_train, y_train)
-    search_time = (time.time() - start_time) / 60
-    
-    # Get best parameters and score
-    best_params = grid_search.best_params_
-    best_score = grid_search.best_score_
-    
-    logger.info(f"GridSearch completed in {search_time:.2f} minutes")
-    logger.info(f"Best CV score: {best_score:.4f}")
-    logger.info(f"Best parameters: {best_params}")
+    try:
+        start_time = time.time()
+        grid_search.fit(X_train, y_train)
+        search_time = (time.time() - start_time) / 60
+        
+        # Get best parameters and score
+        best_params = grid_search.best_params_
+        best_score = grid_search.best_score_
+        
+        logger.info(f"GridSearch completed in {search_time:.2f} minutes")
+        logger.info(f"Best CV score: {best_score:.4f}")
+        logger.info(f"Best parameters: {best_params}")
+        
+    except ValueError as e:
+        logger.warning(f"GridSearch failed with ValueError: {e}")
+        logger.info("Falling back to training on single split without cross-validation...")
+        
+        # Fallback: train on single split with default parameters
+        start_time = time.time()
+        best_model = xgb.XGBClassifier(**base_params)
+        best_model.fit(X_train, y_train)
+        search_time = (time.time() - start_time) / 60
+        
+        # Use default parameters
+        best_params = {}
+        # Calculate score on training data as fallback
+        y_pred_proba = best_model.predict_proba(X_train)[:, 1]
+        best_score = roc_auc_score(y_train, y_pred_proba)
+        
+        logger.info(f"Single split training completed in {search_time:.2f} minutes")
+        logger.info(f"Training score: {best_score:.4f}")
+        logger.info(f"Using default parameters: {base_params}")
+        
+        return best_model, best_params, best_score, search_time
     
     # Create model with best parameters
     best_model = xgb.XGBClassifier(**base_params, **best_params)
@@ -326,15 +349,18 @@ def main_loop(cfg: DictConfig, dataset_name: str, base_dir: Path, dataset_path: 
         # Save best parameters if GridSearch was used
         if use_gridsearch:
             params_path = dataset_dir / "best_parameters.json"
-            import json
             with open(params_path, 'w') as f:
                 json.dump(best_params, f, indent=2)
             logger.info(f"Best parameters saved to {params_path}")
 
     except Exception as e:
-        print(f"Error processing dataset {dataset_name}: {str(e)}")
+        import traceback
+        error_msg = f"Error processing dataset {dataset_name}: {str(e)}"
+        print(error_msg)
         if 'logger' in locals():
-            logger.error(f"Error processing dataset {dataset_name}: {str(e)}")
+            logger.error(f"{error_msg}\n{traceback.format_exc()}")
+        else:
+            print(f"Full traceback:\n{traceback.format_exc()}")
 
 
 @hydra.main(config_path="../conf", config_name="config", version_base="1.3")
@@ -342,7 +368,6 @@ def main(cfg: DictConfig) -> None:
     """XGBoost training script for tabular data"""
     
     # Initialize output directory
-    # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_dir = Path(cfg.save_path) / "logs" / str(cfg.data.dataset_size)
 
     # Load datasets
