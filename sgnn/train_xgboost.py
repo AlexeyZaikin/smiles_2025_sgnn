@@ -61,35 +61,70 @@ def setup_logging(log_dir: Path) -> logging.Logger:
     return logger
 
 
-def train_xgboost_model(X_train, y_train, X_val, y_val, logger, **xgb_params):
+def train_xgboost_model(X_train, y_train, X_val, y_val, logger, from_config=False, **xgb_params):
     """Train XGBoost model"""
+    
+    # Convert to numpy array if it's a pandas Series or DataFrame
+    if hasattr(y_train, 'values'):
+        y_train = y_train.values
+    
+    n_pos = int((y_train == 1).sum())
+    n_neg = int((y_train == 0).sum())
+    
+    # Handle edge cases
+    if n_pos == 0:
+        logger.warning("No positive samples found, setting scale_pos_weight to 1")
+        neg_pos = 1.0
+    elif n_neg == 0:
+        logger.warning("No negative samples found, setting scale_pos_weight to 1")
+        neg_pos = 1.0
+    else:
+        neg_pos = n_neg / n_pos
 
-    # Default parameters
-    default_params = {
-        'objective': 'binary:logistic',
-        'eval_metric': 'auc',
-        'max_depth': 6,
-        'learning_rate': 0.1,
-        'n_estimators': 100,
-        'subsample': 0.8,
-        'colsample_bytree': 0.8,
-        'random_state': 42,
-        'n_jobs': -1,
-        'verbosity': 0,
-        'early_stopping_rounds': 10
-    }
-
-    default_params.update(xgb_params)
+    if from_config == True:
+        # Default parameters
+        default_params = {
+            'objective': 'binary:logistic',
+            'eval_metric': 'auc',
+            'max_depth': 6,
+            'learning_rate': 0.1,
+            'n_estimators': 100,
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+            'random_state': 42,
+            'n_jobs': -1,
+            'verbosity': 0,
+            'early_stopping_rounds': 10
+        }
+        default_params["scale_pos_weight"] = neg_pos
+        default_params.update(xgb_params)
+    else:
+        default_params = {
+            'scale_pos_weight': neg_pos,
+            'objective': 'binary:logistic',
+            'eval_metric': 'logloss',
+            'random_state': 24,
+            'use_label_encoder': False,
+            'n_jobs': -1,
+            'verbosity': 0
+            }
+            
     logger.info(f"XGBoost parameters: {default_params}")
-
     model = xgb.XGBClassifier(**default_params)
-
-    eval_set = [(X_train, y_train), (X_val, y_val)]
-    model.fit(
-        X_train, y_train,
-        eval_set=eval_set,
-        verbose=False
-    )
+    
+    # Only use eval_set if validation data is different from training data
+    # Check if validation data is actually different (not just same reference)
+    if len(X_val) != len(X_train) or not np.array_equal(X_val.values if hasattr(X_val, 'values') else X_val, 
+                                                       X_train.values if hasattr(X_train, 'values') else X_train):
+        eval_set = [(X_train, y_train), (X_val, y_val)]
+        model.fit(
+            X_train, y_train,
+            eval_set=eval_set,
+            verbose=False
+        )
+    else:
+        # Train without validation set (for small datasets)
+        model.fit(X_train, y_train, verbose=False)
     return model
 
 
@@ -223,6 +258,13 @@ def main_loop(cfg: DictConfig, dataset_name: str, base_dir: Path, dataset_path: 
             y_train = train_data['target'].astype(int)
             X_test = test_data.drop('target', axis=1)
             y_test = test_data['target'].astype(int)
+            
+            # Validate that target contains only binary values
+            unique_train = set(y_train.unique())
+            unique_test = set(y_test.unique())
+            if not unique_train.issubset({0, 1}) or not unique_test.issubset({0, 1}):
+                logger.error(f"Target contains non-binary values. Train: {unique_train}, Test: {unique_test}")
+                raise ValueError(f"Target must contain only 0 and 1 values")
         elif isinstance(dataset_path, list):
             X_train = []
             y_train = []
@@ -237,16 +279,36 @@ def main_loop(cfg: DictConfig, dataset_name: str, base_dir: Path, dataset_path: 
                 y_train.append(train_data['target'].astype(int))
                 X_test.append(test_data.drop('target', axis=1))
                 y_test.append(test_data['target'].astype(int))
-            X_train = pd.concat(X_train)
-            y_train = pd.concat(y_train)
-            X_test = pd.concat(X_test)
-            y_test = pd.concat(y_test)
+            X_train = pd.concat(X_train, ignore_index=True)
+            y_train = pd.concat(y_train, ignore_index=True)
+            X_test = pd.concat(X_test, ignore_index=True)
+            y_test = pd.concat(y_test, ignore_index=True)
+            
+            # Validate that target contains only binary values
+            unique_train = set(y_train.unique())
+            unique_test = set(y_test.unique())
+            if not unique_train.issubset({0, 1}) or not unique_test.issubset({0, 1}):
+                logger.error(f"Target contains non-binary values. Train: {unique_train}, Test: {unique_test}")
+                raise ValueError(f"Target must contain only 0 and 1 values")
+        
+        # Handle NaN values in features
+        # X_train = X_train.fillna(0)
+        # X_test = X_test.fillna(0)
+        
+        # Ensure target is integer
+        y_train = y_train.astype(int)
+        y_test = y_test.astype(int)
         
         data_size = len(X_train) + len(X_test)
         logger.info(f"Data size: {data_size}")
         logger.info(f"Train samples: {len(X_train)}, Test samples: {len(X_test)}")
         logger.info(f"Features: {X_train.shape[1]}")
         logger.info(f"Class distribution - Train: {np.bincount(y_train)}, Test: {np.bincount(y_test)}")
+        
+        # Check for empty datasets
+        if len(X_train) == 0 or len(X_test) == 0:
+            logger.error(f"Empty dataset: Train={len(X_train)}, Test={len(X_test)}")
+            raise ValueError("Empty dataset detected")
 
         if use_gridsearch:
             # Use GridSearch to find best hyperparameters
@@ -277,9 +339,25 @@ def main_loop(cfg: DictConfig, dataset_name: str, base_dir: Path, dataset_path: 
             }
 
             # Train model with default parameters
-            X_train, y_train, X_val, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=42, stratify=y_train)
+            # Check if we have enough data for validation split
+            min_samples_per_class = min(np.bincount(y_train))
+            
+            if len(y_train) >= 10 and min_samples_per_class >= 2:
+                # Use validation split only if we have enough data
+                X_train_split, X_val, y_train_split, y_val = train_test_split(
+                    X_train, y_train, test_size=0.1, random_state=24, stratify=y_train
+                )
+                X_train = X_train_split
+                y_train = y_train_split
+                logger.info(f"Using validation split: {len(X_train)} train, {len(X_val)} validation")
+            else:
+                # For small datasets, use all training data without validation split
+                # Don't use test set for validation to avoid data leakage
+                X_val = X_train  # Use same data for training and "validation" (no real validation)
+                y_val = y_train
+                logger.info(f"Small dataset detected ({len(y_train)} samples), using all training data without validation split")
             start_time = time.time()
-            model = train_xgboost_model(X_train, y_train, X_val, y_val, logger, **xgb_params)
+            model = train_xgboost_model(X_train, y_train, X_val, y_val, logger, from_config=False, **xgb_params)
             train_time = (time.time() - start_time) / 60
             best_params = xgb_params
             best_cv_score = None
@@ -371,7 +449,10 @@ def main(cfg: DictConfig) -> None:
     base_dir = Path(cfg.save_path) / "logs" / str(cfg.data.dataset_size)
 
     # Load datasets
-    dataset_paths = glob.glob(f"{cfg.data.dataset_path}/csv_{cfg.data.dataset_size}/*.node_features.csv")
+    if cfg.expand_features:
+        dataset_paths = glob.glob(f"{cfg.data.dataset_path}/csv_{cfg.data.dataset_size}/noisy/*.node_features.csv")
+    else:
+        dataset_paths = glob.glob(f"{cfg.data.dataset_path}/csv_{cfg.data.dataset_size}/*.node_features.csv")
     dataset_names = [path.split("/")[-1].split(".")[0] for path in dataset_paths]
     
     if cfg.per_dataset:
