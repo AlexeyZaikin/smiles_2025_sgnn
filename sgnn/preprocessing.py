@@ -14,15 +14,15 @@ warnings.filterwarnings("ignore")
 
 def prepare_tabular(args):
     datasets = set()
-    for p in Path(os.path.join(args.data_path, f"csv_{args.data_size}")).glob("*.csv"):
+    for p in Path(os.path.join(args.data_path, f"csv_{args.data_size}" if args.noisy == False else "")).glob("*.csv"):
         datasets.add(str(p).split("/")[-1].split(".")[0])
 
     all_data = {}
     for dataset in tqdm(datasets, desc=f"Graph structure building"):
         all_data[dataset] = defaultdict(list)
-        graph_data = pd.read_csv(os.path.join(args.data_path, f"csv_{args.data_size}", f"{dataset}.graph.csv"))
+        graph_data = pd.read_csv(os.path.join(args.data_path, f"csv_{args.data_size}" if args.noisy == False else "", f"{dataset}.graph.csv"))
         node_features_data = pd.read_csv(
-            os.path.join(args.data_path, f"csv_{args.data_size}", f"{dataset}.node_features.csv"), index_col=0
+            os.path.join(args.data_path, f"csv_{args.data_size}" if args.noisy == False else "", f"{dataset}.node_features.csv"), index_col=0
         )
         # Get the graph columns (exclude p1, p2, feature columns, and is_in_test)
         graph_columns = []
@@ -57,7 +57,7 @@ def prepare_tabular(args):
             else:
                 all_data[dataset]["train"].append(data)
 
-    with open(os.path.join(args.data_path, f"csv_{args.data_size}", "processed_graphs.pkl"), "wb") as f:
+    with open(os.path.join(args.data_path, f"csv_{args.data_size}" if args.noisy == False else "", "processed_graphs.pkl"), "wb") as f:
         pickle.dump(all_data, f)
 
 
@@ -113,6 +113,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("data_path", type=str)
     parser.add_argument("--data_size", type=float, default=1.0)
+    parser.add_argument("--noisy", action="store_true")
     args = parser.parse_args()
     prepare_tabular(args)
     # prepare_hypergraph()
