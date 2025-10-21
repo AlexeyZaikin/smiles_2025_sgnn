@@ -33,7 +33,7 @@ training:
   lr_factor: 0.5
   weight_decay: 1e-5
   cv_folds: 3
-  mixed_precision: True
+  mixed_precision: False
   log_interval: 16
 
 # Hyperparameter search space
