@@ -5,6 +5,7 @@ optimize: False
 per_dataset: False
 use_kfold: False
 save_path: /media/ssd-3t/isviridov/smiles/results_prev
+expand_features: False
 
 model:
   type: "GATv2" # Model architectures to test
