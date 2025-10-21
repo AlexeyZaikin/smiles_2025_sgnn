@@ -1,13 +1,14 @@
 import torch
 import networkx as nx
+from tqdm import tqdm
 
 
 def add_node_features(graphs):
     graph_data = {}
     for data_type in ["train", "test"]:
         new_graphs = []
-
-        for graph in graphs[data_type]:
+        print("Adding node features for", data_type)
+        for graph in tqdm(graphs[data_type]):
             if torch.isnan(graph.x).any():
                 # shouldn't happen tho...
                 raise ValueError(
@@ -15,7 +16,6 @@ def add_node_features(graphs):
                 )
 
             graph = graph.clone()
-
             edge_index = graph.edge_index.cpu().numpy()
             edge_weights = graph.edge_attr.squeeze().cpu().numpy()
             num_nodes = graph.num_nodes

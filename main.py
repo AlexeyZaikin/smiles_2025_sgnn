@@ -18,12 +18,14 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from pathlib import Path
 from typing import List
+import os
 
 from sgnn.model import GNNModel
 from sgnn.node_features_utils import add_node_features
 from sgnn.sparsify_utils import get_sparsify_f_list
 from sgnn.trainer import GNNTrainer
-from sgnn.utils import plot_metrics, setup_logging
+from sgnn.utils import plot_metrics, setup_logging, cleanup_logging
+
 
 warnings.filterwarnings("ignore")
 
@@ -32,106 +34,191 @@ def objective(
     trial: Trial, cfg: DictConfig, full_data: List[Data], log_dir: Path
 ) -> float:
     """Optuna hyperparameter optimization objective"""
-    # Suggest hyperparameters
-    params = {
-        "model": {
-            "activation": trial.suggest_categorical(
-                "activation", cfg.hparams.activation.options
-            ),
-            "hidden_channels": trial.suggest_int(
-                "hidden_channels",
-                cfg.hparams.hidden_channels.min,
-                cfg.hparams.hidden_channels.max,
-            ),
-            "num_layers": trial.suggest_int(
-                "num_layers", cfg.hparams.num_layers.min, cfg.hparams.num_layers.max
-            ),
-            "dropout": trial.suggest_float(
-                "dropout", cfg.hparams.dropout.min, cfg.hparams.dropout.max
-            ),
-            "residual": trial.suggest_categorical(
-                "residual", cfg.hparams.residual.options
-            ),
-            "use_classifier_mlp": trial.suggest_categorical(
-                "use_classifier_mlp", cfg.hparams.use_classifier_mlp.options
-            ),
-        },
-        "training": {
-            "learning_rate": trial.suggest_float(
-                "learning_rate",
-                cfg.hparams.learning_rate.min,
-                cfg.hparams.learning_rate.max,
-                log=True,
-            ),
-        },
-    }
+    logger = None
+    tb_writer = None
+    
+    try:
+        # Suggest hyperparameters
+        params = {
+            "model": {
+                "activation": trial.suggest_categorical(
+                    "activation", cfg.hparams.activation.options
+                ),
+                "hidden_channels": trial.suggest_int(
+                    "hidden_channels",
+                    cfg.hparams.hidden_channels.min,
+                    cfg.hparams.hidden_channels.max,
+                ),
+                "num_layers": trial.suggest_int(
+                    "num_layers", cfg.hparams.num_layers.min, cfg.hparams.num_layers.max
+                ),
+                "dropout": trial.suggest_float(
+                    "dropout", cfg.hparams.dropout.min, cfg.hparams.dropout.max
+                ),
+                "residual": trial.suggest_categorical(
+                    "residual", cfg.hparams.residual.options
+                ),
+                "use_classifier_mlp": trial.suggest_categorical(
+                    "use_classifier_mlp", cfg.hparams.use_classifier_mlp.options
+                ),
+            },
+            "training": {
+                "learning_rate": trial.suggest_float(
+                    "learning_rate",
+                    cfg.hparams.learning_rate.min,
+                    cfg.hparams.learning_rate.max,
+                    log=True,
+                ),
+            },
+        }
 
-    if cfg.model.type in ["GCN"]:
-        params["model"]["use_edge_encoder"] = False
-    else:
-        params["model"]["use_edge_encoder"] = trial.suggest_categorical(
-            "use_edge_encoder", cfg.hparams.use_edge_encoder.options
-        )
+        if cfg.model.type in ["GCN"]:
+            params["model"]["use_edge_encoder"] = False
+        else:
+            params["model"]["use_edge_encoder"] = trial.suggest_categorical(
+                "use_edge_encoder", cfg.hparams.use_edge_encoder.options
+            )
 
-    if cfg.model.type in ["GATv2", "Transformer"]:
-        params["model"]["heads"] = trial.suggest_int(
-            "heads", cfg.hparams.heads.min, cfg.hparams.heads.max
-        )
-        params["model"]["concat"] = trial.suggest_categorical(
-            "concat", cfg.hparams.concat.options
-        )
+        if cfg.model.type in ["GATv2", "Transformer"]:
+            params["model"]["heads"] = trial.suggest_int(
+                "heads", cfg.hparams.heads.min, cfg.hparams.heads.max
+            )
+            params["model"]["concat"] = trial.suggest_categorical(
+                "concat", cfg.hparams.concat.options
+            )
 
-    if params["model"]["use_edge_encoder"]:
-        params["model"]["edge_encoder_channels"] = trial.suggest_int(
-            "edge_encoder_channels",
-            cfg.hparams.edge_encoder_channels.min,
-            cfg.hparams.edge_encoder_channels.max,
-        )
-        params["model"]["edge_encoder_layers"] = trial.suggest_int(
-            "edge_encoder_layers",
-            cfg.hparams.edge_encoder_layers.min,
-            cfg.hparams.edge_encoder_layers.max,
-        )
+        if params["model"]["use_edge_encoder"]:
+            params["model"]["edge_encoder_channels"] = trial.suggest_int(
+                "edge_encoder_channels",
+                cfg.hparams.edge_encoder_channels.min,
+                cfg.hparams.edge_encoder_channels.max,
+            )
+            params["model"]["edge_encoder_layers"] = trial.suggest_int(
+                "edge_encoder_layers",
+                cfg.hparams.edge_encoder_layers.min,
+                cfg.hparams.edge_encoder_layers.max,
+            )
 
-    if params["model"]["use_classifier_mlp"]:
-        params["model"]["classifier_mlp_channels"] = trial.suggest_int(
-            "classifier_mlp_channels",
-            cfg.hparams.classifier_mlp_channels.min,
-            cfg.hparams.classifier_mlp_channels.max,
-        )
-        params["model"]["classifier_mlp_layers"] = trial.suggest_int(
-            "classifier_mlp_layers",
-            cfg.hparams.classifier_mlp_layers.min,
-            cfg.hparams.classifier_mlp_layers.max,
-        )
+        if params["model"]["use_classifier_mlp"]:
+            params["model"]["classifier_mlp_channels"] = trial.suggest_int(
+                "classifier_mlp_channels",
+                cfg.hparams.classifier_mlp_channels.min,
+                cfg.hparams.classifier_mlp_channels.max,
+            )
+            params["model"]["classifier_mlp_layers"] = trial.suggest_int(
+                "classifier_mlp_layers",
+                cfg.hparams.classifier_mlp_layers.min,
+                cfg.hparams.classifier_mlp_layers.max,
+            )
 
-    # Create trial-specific config
-    trial_cfg = OmegaConf.merge(cfg, OmegaConf.create(params))
+        # Create trial-specific config
+        trial_cfg = OmegaConf.merge(cfg, OmegaConf.create(params))
 
-    # Set up logging
-    trial_log_dir = log_dir / f"trial_{trial.number}"
-    trial_log_dir.mkdir(exist_ok=True)
-    logger, tb_writer = setup_logging(trial_log_dir)
+        # Set up logging
+        trial_log_dir = log_dir / f"trial_{trial.number}"
+        trial_log_dir.mkdir(exist_ok=True)
+        logger, tb_writer = setup_logging(trial_log_dir)
 
-    # just a debug
-    logger.info(f"Current trial cfg: {trial_cfg}")
+        # just a debug
+        logger.info(f"Current trial cfg: {trial_cfg}")
 
-    if cfg.use_kfold:
-        # Cross-validation
-        cv_scores = []
-        skf = StratifiedKFold(
-            n_splits=trial_cfg.training.cv_folds,
-            shuffle=True,
-            random_state=trial_cfg.seed,
-        )
-        labels = [data.y for data in full_data]
+        if cfg.use_kfold:
+            # Cross-validation
+            cv_scores = []
+            skf = StratifiedKFold(
+                n_splits=trial_cfg.training.cv_folds,
+                shuffle=True,
+                random_state=trial_cfg.seed,
+            )
+            labels = [data.y for data in full_data]
 
-        for fold, (train_idx, val_idx) in tqdm(
-            enumerate(skf.split(full_data, labels)), desc="CV Fold"
-        ):
+            for fold, (train_idx, val_idx) in tqdm(
+                enumerate(skf.split(full_data, labels)), desc="CV Fold"
+            ):
+                fold_log_dir = trial_log_dir / f"fold_{fold}"
+                fold_log_dir.mkdir(exist_ok=True)
+
+                # Create data loaders
+                train_loader = DataLoader(
+                    [full_data[i] for i in train_idx],
+                    shuffle=True,
+                    batch_size=trial_cfg.training.batch_size,
+                    num_workers=0,
+                    pin_memory=True,
+                )
+                val_loader = DataLoader(
+                    [full_data[i] for i in val_idx],
+                    batch_size=trial_cfg.training.batch_size,
+                    num_workers=0,
+                    pin_memory=True,
+                )
+
+                # Initialize model
+                model = GNNModel(
+                    trial_cfg,
+                    in_channels=full_data[0].x.shape[-1],
+                ).to(torch.device(trial_cfg.device))
+
+                # Optimizer and scheduler
+                optimizer = torch.optim.AdamW(
+                    model.parameters(),
+                    lr=trial_cfg.training.learning_rate,
+                    weight_decay=trial_cfg.training.weight_decay,
+                )
+                scheduler = ReduceLROnPlateau(
+                    optimizer,
+                    mode="max",
+                    patience=trial_cfg.training.lr_patience,
+                    factor=trial_cfg.training.lr_factor,
+                )
+                criterion = nn.CrossEntropyLoss()
+
+                # Trainer setup
+                trainer = GNNTrainer(trial_cfg, device=trial_cfg.device)
+
+                try:
+                    # Training
+                    history, model = trainer.train(
+                        model,
+                        train_loader,
+                        val_loader,
+                        optimizer,
+                        criterion,
+                        scheduler,
+                        logger,
+                        tb_writer,
+                        fold_log_dir,
+                    )
+                    logger.info(
+                        f"Finished training for fold {fold}. Current history is being saved."
+                    )
+                    with open(fold_log_dir / "history.json", "w") as f:
+                        json.dump(history, f)
+
+                    # Validation metrics
+                    val_metrics = trainer.evaluate(model, val_loader, criterion)
+                    cv_scores.append(val_metrics["roc_auc"])
+
+                    # Report intermediate result
+                    trial.report(val_metrics["roc_auc"], fold)
+
+                    # Handle pruning
+                    if trial.should_prune():
+                        raise optuna.TrialPruned()
+
+                except Exception as e:
+                    logger.error(f"Training failed: {traceback.format_exc()}")
+                    cv_scores.append(0.0)
+
+            return np.mean(cv_scores)
+        else:
+            fold = 0
             fold_log_dir = trial_log_dir / f"fold_{fold}"
             fold_log_dir.mkdir(exist_ok=True)
-
+            labels = [data.y for data in full_data]
+            train_idx, val_idx = train_test_split(
+                np.arange(len(labels)), train_size=0.9, stratify=labels
+            )
             # Create data loaders
             train_loader = DataLoader(
                 [full_data[i] for i in train_idx],
@@ -183,15 +270,13 @@ def objective(
                     tb_writer,
                     fold_log_dir,
                 )
-                logger.info(
-                    f"Finished training for fold {fold}. Current history is being saved."
-                )
+                logger.info("Finished training. Current history is being saved.")
                 with open(fold_log_dir / "history.json", "w") as f:
                     json.dump(history, f)
 
                 # Validation metrics
                 val_metrics = trainer.evaluate(model, val_loader, criterion)
-                cv_scores.append(val_metrics["roc_auc"])
+                score = val_metrics["roc_auc"]
 
                 # Report intermediate result
                 trial.report(val_metrics["roc_auc"], fold)
@@ -202,98 +287,14 @@ def objective(
 
             except Exception as e:
                 logger.error(f"Training failed: {traceback.format_exc()}")
-                cv_scores.append(0.0)
+                score = 0.0
 
-        # Clean up resources more aggressively
-        tb_writer.close()
-        del tb_writer
-        import gc
-        gc.collect()
-        return np.mean(cv_scores)
-    else:
-        fold = 0
-        fold_log_dir = trial_log_dir / f"fold_{fold}"
-        fold_log_dir.mkdir(exist_ok=True)
-        labels = [data.y for data in full_data]
-        train_idx, val_idx = train_test_split(
-            np.arange(len(labels)), train_size=0.9, stratify=labels
-        )
-        # Create data loaders
-        train_loader = DataLoader(
-            [full_data[i] for i in train_idx],
-            shuffle=True,
-            batch_size=trial_cfg.training.batch_size,
-            num_workers=0,
-            pin_memory=True,
-        )
-        val_loader = DataLoader(
-            [full_data[i] for i in val_idx],
-            batch_size=trial_cfg.training.batch_size,
-            num_workers=0,
-            pin_memory=True,
-        )
-
-        # Initialize model
-        model = GNNModel(
-            trial_cfg,
-            in_channels=full_data[0].x.shape[-1],
-        ).to(torch.device(trial_cfg.device))
-
-        # Optimizer and scheduler
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=trial_cfg.training.learning_rate,
-            weight_decay=trial_cfg.training.weight_decay,
-        )
-        scheduler = ReduceLROnPlateau(
-            optimizer,
-            mode="max",
-            patience=trial_cfg.training.lr_patience,
-            factor=trial_cfg.training.lr_factor,
-        )
-        criterion = nn.CrossEntropyLoss()
-
-        # Trainer setup
-        trainer = GNNTrainer(trial_cfg, device=trial_cfg.device)
-
-        try:
-            # Training
-            history, model = trainer.train(
-                model,
-                train_loader,
-                val_loader,
-                optimizer,
-                criterion,
-                scheduler,
-                logger,
-                tb_writer,
-                fold_log_dir,
-            )
-            logger.info("Finished training. Current history is being saved.")
-            with open(fold_log_dir / "history.json", "w") as f:
-                json.dump(history, f)
-
-            # Validation metrics
-            val_metrics = trainer.evaluate(model, val_loader, criterion)
-            score = val_metrics["roc_auc"]
-
-            # Report intermediate result
-            trial.report(val_metrics["roc_auc"], fold)
-
-            # Handle pruning
-            if trial.should_prune():
-                raise optuna.TrialPruned()
-
-        except Exception as e:
-            logger.error(f"Training failed: {traceback.format_exc()}")
-            score = 0.0
-
-        # Clean up resources more aggressively
-        tb_writer.close()
-        del tb_writer
-        import gc
-        gc.collect()
-        return score
+            return score
+            
+    finally:
+        # Always cleanup resources, even if an exception occurred
+        if logger is not None and tb_writer is not None:
+            cleanup_logging(logger, tb_writer)
 
 
 def main_loop(cfg: DictConfig, selected_data, base_dir):
@@ -303,37 +304,40 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
     for trial_idx, (sparsify_tuple, node_features) in enumerate(
         product(sparsify_functions_list, [True, False])
     ):
-        sparsify_name = sparsify_tuple[0]
-        sparsify_f = sparsify_tuple[1]
-        data = sparsify_f(selected_data)
-        if node_features:
-            data = add_node_features(data)
-
-        cfg.data.sparsify = sparsify_name
-        cfg.data.node_features = node_features
-        cfg.data.trial_idx = trial_idx
-
-        # Prepare data
-        train_data = data["train"]
-        test_data = data["test"]
-        full_data = train_data  # For cross-validation
-        model_type = cfg.model.type
-
-        model_dir = (
-            base_dir
-            / model_type
-            / cfg.data.sparsify
-            / f"node_features_{cfg.data.node_features}"
-        )
-        model_dir.mkdir(parents=True, exist_ok=True)
-
-        # Set up logging
-        logger, tb_writer = setup_logging(model_dir)
-        logger.info(
-            f"Starting experiment: {model_type}/{cfg.data.sparsify}/node_features_{cfg.data.node_features}"
-        )
-
+        logger = None
+        tb_writer = None
+        
         try:
+            sparsify_name = sparsify_tuple[0]
+            sparsify_f = sparsify_tuple[1]
+            data = sparsify_f(selected_data)
+            if node_features:
+                data = add_node_features(data)
+
+            cfg.data.sparsify = sparsify_name
+            cfg.data.node_features = node_features
+            cfg.data.trial_idx = trial_idx
+
+            # Prepare data
+            train_data = data["train"]
+            test_data = data["test"]
+            full_data = train_data  # For cross-validation
+            model_type = cfg.model.type
+
+            model_dir = (
+                base_dir
+                / model_type
+                / cfg.data.sparsify
+                / f"node_features_{cfg.data.node_features}"
+            )
+            model_dir.mkdir(parents=True, exist_ok=True)
+
+            # Set up logging
+            logger, tb_writer = setup_logging(model_dir)
+            logger.info(
+                f"Starting experiment: {model_type}/{cfg.data.sparsify}/node_features_{cfg.data.node_features}"
+            )
+
             if cfg.optimize:
                 # Optuna hyperparameter optimization
                 study = optuna.create_study(
@@ -438,19 +442,19 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
                 # Visualizations
                 plot_metrics(history, model_dir)
             except Exception as e:
-                logger.error(
-                    f"Error in {model_type} during final model training:\n{traceback.format_exc()}",
-                )
+                if logger:
+                    logger.error(
+                        f"Error in {model_type} during final model training:\n{traceback.format_exc()}",
+                    )
         except Exception as e:
-            logger.error(
-                f"Error in {model_type}:\n{traceback.format_exc()}",
-            )
-
-        # Close resources more aggressively
-        tb_writer.close()
-        del tb_writer
-        import gc
-        gc.collect()
+            if logger:
+                logger.error(
+                    f"Error in {model_type}:\n{traceback.format_exc()}",
+                )
+        finally:
+            # Always cleanup resources, even if an exception occurred
+            if logger is not None and tb_writer is not None:
+                cleanup_logging(logger, tb_writer)
 
 
 @hydra.main(config_path="conf", config_name="config", version_base="1.3")
@@ -460,7 +464,7 @@ def main(cfg: DictConfig) -> None:
     base_dir = Path(cfg.save_path) / "logs" / str(cfg.data.dataset_size)
 
     # Load datasets
-    dataset_path = Path(cfg.data.dataset_path) / f"csv_{cfg.data.dataset_size}" / "processed_graphs.pkl"
+    dataset_path = os.path.join(cfg.data.dataset_path, f"csv_{cfg.data.dataset_size}", "noisy" if cfg.expand_features == True else "", "processed_graphs.pkl")
     dataset_names = cfg.data.datasets
     with open(dataset_path, "rb") as f:
         all_data = pickle.load(f)
