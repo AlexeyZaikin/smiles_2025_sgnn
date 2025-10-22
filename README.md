@@ -31,14 +31,14 @@ This project implements a comprehensive machine learning pipeline that:
 
 ### Setup
 
-1. Clone this repository and go to the ```smiles_2025_sgnn``` directory;
+1. Clone this repository and go to the ```smiles_2025_sgnn``` directory
 
 2. Install dependencies using UV:
 ```bash
 uv sync
 ```
 
-3. Clone [tabular data](https://github.com/Mirkes/Databases-and-code-for-l_p-functional-comparison);
+3. Clone [tabular data](https://github.com/Mirkes/Databases-and-code-for-l_p-functional-comparison)
 
 4. Set up environment variables:
 ```bash
@@ -49,11 +49,10 @@ export DATA_DIR=/path/to/processed/data
 
 ## Usage
 
-The pipeline consists of four main steps:
+The pipeline consists of four main steps in the ```scripts``` directory:
 
 #### 1. Data Preparation
 ```bash
-cd scripts
 ./0_prepare_data.sh
 ```
 - Converts .mat files to CSV format with graph and node feature representations
