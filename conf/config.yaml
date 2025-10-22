@@ -4,7 +4,7 @@ device: "cuda"
 optimize: False
 per_dataset: False
 use_kfold: False
-save_path: /media/ssd-3t/isviridov/smiles/results_prev
+save_path: ./results
 expand_features: False
 
 model:

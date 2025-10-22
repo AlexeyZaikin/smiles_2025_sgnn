@@ -2,7 +2,7 @@
 
 cd ../
 
-export DATA_DIR=/media/ssd-3t/isviridov/smiles/synolytic_data
+export DATA_DIR=../synolytic_data
 
 CUDA_VISIBLE_DEVICES=0 uv run main.py ++model.type=GATv2 ++data.dataset_path=$DATA_DIR ++per_dataset=True ++data.dataset_size=0.05
 CUDA_VISIBLE_DEVICES=0 uv run main.py ++model.type=GATv2 ++data.dataset_path=$DATA_DIR ++per_dataset=True ++data.dataset_size=0.1
