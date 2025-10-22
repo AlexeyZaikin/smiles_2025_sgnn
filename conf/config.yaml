@@ -5,6 +5,7 @@ optimize: False
 per_dataset: False
 use_kfold: False
 save_path: /media/ssd-3t/isviridov/smiles/results_prev
+expand_features: False
 
 model:
   type: "GATv2" # Model architectures to test
@@ -32,7 +33,7 @@ training:
   lr_factor: 0.5
   weight_decay: 1e-5
   cv_folds: 3
-  mixed_precision: True
+  mixed_precision: False
   log_interval: 16
 
 # Hyperparameter search space

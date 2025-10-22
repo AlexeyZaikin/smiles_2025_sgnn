@@ -80,7 +80,8 @@ def setup_logging(log_dir: Path) -> Tuple[logging.Logger, SummaryWriter]:
     # Clear existing handlers to prevent accumulation
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
-        handler.close()
+        if hasattr(handler, 'close'):
+            handler.close()
 
     # File handler
     file_handler = logging.FileHandler(log_dir / "experiment.log")
@@ -104,3 +105,23 @@ def setup_logging(log_dir: Path) -> Tuple[logging.Logger, SummaryWriter]:
     tb_writer = SummaryWriter(log_dir=log_dir)
 
     return logger, tb_writer
+
+
+def cleanup_logging(logger: logging.Logger, tb_writer: SummaryWriter):
+    """Properly cleanup logging resources"""
+    try:
+        # Close all handlers
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+            if hasattr(handler, 'close'):
+                handler.close()
+        
+        # Close TensorBoard writer
+        if tb_writer is not None:
+            tb_writer.close()
+            
+        # Force garbage collection
+        import gc
+        gc.collect()
+    except Exception as e:
+        print(f"Warning: Error during logging cleanup: {e}")
