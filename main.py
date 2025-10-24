@@ -119,7 +119,6 @@ def objective(
         trial_log_dir.mkdir(exist_ok=True)
         logger, tb_writer = setup_logging(trial_log_dir)
 
-        # just a debug
         logger.info(f"Current trial cfg: {trial_cfg}")
 
         if cfg.use_kfold:

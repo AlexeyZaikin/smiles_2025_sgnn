@@ -236,17 +236,16 @@ def main(args):
                 .groupby('target', group_keys=False)
                 .sample(frac=args.data_size / get_df_by_frac(args.data_size), random_state=42)
             )
-            # train_df = train_df.groupby('target', group_keys=False).apply(lambda x: x.sample(frac=(args.data_size / get_df_by_frac(args.data_size)), random_state=42))
             train_df = train_df.sample(frac=1, random_state=42)
 
-            # Обновляем Xtrain и ytrain
+            # Update Xtrain and ytrain
             ytrain = train_df['target']
             Xtrain = train_df.drop(columns=['target'])
 
             ytest = test_df['target']
             Xtest = test_df.drop(columns=['target'])
 
-            # Обновляем features_df и target
+            # Update features_df and target
             features_df = pd.concat([Xtrain, Xtest])
             target = pd.concat([ytrain, ytest])
 

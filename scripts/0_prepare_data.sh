@@ -2,8 +2,8 @@
 
 cd ../
 
-export DATASET_PATH=/media/ssd-3t/isviridov/smiles/Databases-and-code-for-l_p-functional-comparison/databases
-export SAVE_PATH=/media/ssd-3t/isviridov/smiles/synolytic_data
+export DATASET_PATH=../Databases-and-code-for-l_p-functional-comparison/databases
+export SAVE_PATH=../synolytic_data
 
 uv run sgnn/obtain_data.py $DATASET_PATH $SAVE_PATH --data_size=1.0
 uv run sgnn/preprocessing.py $SAVE_PATH --data_size=1.0

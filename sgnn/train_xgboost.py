@@ -291,9 +291,6 @@ def main_loop(cfg: DictConfig, dataset_name: str, base_dir: Path, dataset_path: 
                 logger.error(f"Target contains non-binary values. Train: {unique_train}, Test: {unique_test}")
                 raise ValueError(f"Target must contain only 0 and 1 values")
         
-        # Handle NaN values in features
-        # X_train = X_train.fillna(0)
-        # X_test = X_test.fillna(0)
         
         # Ensure target is integer
         y_train = y_train.astype(int)

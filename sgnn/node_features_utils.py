@@ -10,9 +10,8 @@ def add_node_features(graphs):
         print("Adding node features for", data_type)
         for graph in tqdm(graphs[data_type]):
             if torch.isnan(graph.x).any():
-                # shouldn't happen tho...
                 raise ValueError(
-                    "\n\n\nBEFORE NaN detected in node features for a graph."
+                    "NaN detected in node features for a graph."
                 )
 
             graph = graph.clone()
@@ -30,8 +29,6 @@ def add_node_features(graphs):
             strength = dict(G.degree(weight="weight"))
             closeness = nx.closeness_centrality(G)
             betweenness = nx.betweenness_centrality(G, weight="weight")
-            # ломается на 5ом графе
-            # pagerank = nx.pagerank(G, weight="weight", max_iter=1000000)
 
             scalar_features = (
                 graph.x.squeeze()
@@ -48,7 +45,6 @@ def add_node_features(graphs):
                     strength.get(node, 0.0) / max(num_nodes - 1, 1),
                     closeness.get(node, 0.0),
                     betweenness.get(node, 0.0),
-                    # pagerank.get(node, 0.0),
                 ]
                 node_features.append(features)
 
@@ -56,10 +52,7 @@ def add_node_features(graphs):
             new_graphs.append(graph)
 
             if torch.isnan(graph.x).any():
-                graph.x = torch.nan_to_num(graph.x) # TODO: proper fix it lol
-                # raise ValueError(
-                #     "\n\n\AFTER NaN detected in node features for a graph."
-                # )
+                graph.x = torch.nan_to_num(graph.x)
 
         graph_data[data_type] = new_graphs
 
