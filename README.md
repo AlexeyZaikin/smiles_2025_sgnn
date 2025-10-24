@@ -6,14 +6,14 @@ This repository contains the implementation of experiments from the paper "Overc
 
 This project implements a comprehensive machine learning pipeline that:
 - Converts [tabular data](https://github.com/Mirkes/Databases-and-code-for-l_p-functional-comparison) into synolitic graphs
-- Trains Graph Neural Networks ([GATv2](https://pytorch-geometric.readthedocs.io/en/2.6.1/generated/torch_geometric.nn.conv.GATv2Conv.html), [GINE](https://pytorch-geometric.readthedocs.io/en/2.6.0/generated/torch_geometric.nn.conv.GINEConv.html)) on graph representations
+- Trains Graph Neural Networks ([GATv2](https://pytorch-geometric.readthedocs.io/en/2.6.1/generated/torch_geometric.nn.conv.GATv2Conv.html), [GCN](https://pytorch-geometric.readthedocs.io/en/2.5.2/generated/torch_geometric.nn.conv.GCNConv.html)) on graph representations
 - Trains XGBoost baseline models on tabular features
 - Supports feature expansion with noisy features for robustness testing
 - Provides comprehensive hyperparameter optimization using Optuna
 
 ## Features
 
-- **Multiple GNN Architectures**: GATv2, GINE
+- **Multiple GNN Architectures**: GATv2, GCN
 - **Graph Sparsification**: Various sparsification strategies (percentage-based, minimum connected, no sparsification)
 - **Node Features**: Optional addition of node features to graphs (degree centrality, clustering coefficient, betweenness centrality, eigenvector centrality, PageRank, local clustering coefficient)
 - **Noisy Features**: Feature expansion with controlled noise injection for robustness evaluation
@@ -62,7 +62,7 @@ The pipeline consists of four main steps in the ```scripts``` directory:
 ```bash
 ./1_run_graphs_training.sh
 ```
-- Trains GATv2 and GINE models on different dataset proportions
+- Trains GATv2 and GCN models on different dataset proportions
 - Supports hyperparameter optimization with Optuna
 - Generates comprehensive training logs and performance metrics
 
