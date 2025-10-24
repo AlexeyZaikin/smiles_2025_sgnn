@@ -6,9 +6,7 @@ from functools import partial
 
 
 def no_sparsify(graphs: dict[str, list[Data]]):
-    # WHY?
-    # this would suffice
-    # return graphs
+    """Return graphs without sparsification (cloned for consistency)."""
     graph_data = {}
     for data_type in ["train", "test"]:
         graph_data[data_type] = [graph.clone() for graph in graphs[data_type]]
@@ -16,7 +14,7 @@ def no_sparsify(graphs: dict[str, list[Data]]):
 
 
 def sparsify_p(graphs: dict[str, list[Data]], p: float):
-    # p -- доля ребер, которые надо оставить
+    """p — fraction of edges with highest absolute weights."""
     graph_data = {}
     for data_type in ["train", "test"]:
         new_graphs = []
@@ -59,12 +57,12 @@ def sparsify_min_connected(graphs: dict[str, list[Data]]):
             high = len(unique_weights) - 1
             best_eps = unique_weights[-1]
 
-            # бинпоиск по уникальным весам
+            # Binary search over unique weights
             while low <= high:
                 mid = (low + high) // 2
                 eps = unique_weights[mid]
 
-                # Строим граф из рёбер с abs(w) >= eps
+                # Build graph with edges where abs(w) >= eps
                 mask = abs_weights >= eps
                 edges = edge_index[:, mask].T.cpu().numpy()
                 G = nx.Graph()
@@ -77,7 +75,7 @@ def sparsify_min_connected(graphs: dict[str, list[Data]]):
                 else:
                     high = mid - 1
 
-            # Удаляем слабые рёбра
+            # Remove weak edges
             mask = abs_weights >= best_eps
             graph.edge_attr = graph.edge_attr[mask, :]
             graph.edge_index = graph.edge_index[:, mask]

@@ -97,7 +97,6 @@ class GNNTrainer:
 
         # Compute global metrics
         global_metrics = self._compute_metrics(all_probs, all_preds, all_labels)
-        # print(global_metrics["f1"])
         metrics = {
             **global_metrics,
             "loss": total_loss / len(loader.dataset),
@@ -119,7 +118,6 @@ class GNNTrainer:
                 )
                 metrics["per_dataset"][dataset] = dataset_metrics
 
-        # print(metrics["per_dataset"])
         return metrics
 
     def _compute_metrics(
@@ -130,8 +128,6 @@ class GNNTrainer:
         probs_np = probs.numpy()
         preds_np = preds.numpy()
 
-        # print("labels", labels_np, "preds", preds_np)
-        # print("f1", f1_score(labels_np, preds_np))
 
         metrics = {
             "accuracy": (preds_np == labels_np).mean(),
