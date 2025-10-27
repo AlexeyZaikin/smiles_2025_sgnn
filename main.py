@@ -216,7 +216,7 @@ def objective(
             fold_log_dir.mkdir(exist_ok=True)
             labels = [data.y for data in full_data]
             train_idx, val_idx = train_test_split(
-                np.arange(len(labels)), train_size=0.9, stratify=labels
+                np.arange(len(labels)), train_size=0.9, stratify=labels, random_state=trial_cfg.seed
             )
             # Create data loaders
             train_loader = DataLoader(
@@ -323,6 +323,14 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
             full_data = train_data  # For cross-validation
             model_type = cfg.model.type
 
+            # Split train_data into train and validation
+            train_data_split, val_data_split = train_test_split(
+                train_data, 
+                test_size=0.1, 
+                random_state=cfg.seed,
+                stratify=[int(item.y) for item in train_data]
+            )
+
             model_dir = (
                 base_dir
                 / model_type
@@ -366,8 +374,14 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
 
             # Data loaders
             train_loader = DataLoader(
-                train_data,
+                train_data_split,
                 shuffle=True,
+                batch_size=cfg.training.batch_size,
+                num_workers=0,
+                pin_memory=True,
+            )
+            val_loader = DataLoader(
+                val_data_split,
                 batch_size=cfg.training.batch_size,
                 num_workers=0,
                 pin_memory=True,
@@ -405,7 +419,7 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
                 history, model = trainer.train(
                     model,
                     train_loader,
-                    test_loader,
+                    val_loader,
                     optimizer,
                     criterion,
                     scheduler,
@@ -473,6 +487,19 @@ def main(cfg: DictConfig) -> None:
         for dataset_name in dataset_names:
             cur_dir = base_dir / dataset_name
             selected_data = all_data[dataset_name]
+            main_loop(cfg, selected_data, cur_dir)
+    elif cfg.leave_one_out:
+        if not dataset_names:
+            dataset_names = list(all_data.keys())
+        for test_dataset in tqdm(dataset_names):
+            cur_dir = base_dir / f"leave_one_out_{test_dataset}"
+            train_data = []
+            for name in dataset_names:
+                if name != test_dataset:
+                    train_data.extend(all_data[name]["train"])
+                    train_data.extend(all_data[name]["test"])
+            test_data = all_data[test_dataset]["test"]
+            selected_data = {"train": train_data, "test": test_data}
             main_loop(cfg, selected_data, cur_dir)
     else:
         selected_data = {"train": [], "test": []}

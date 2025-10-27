@@ -4,6 +4,7 @@ device: "cuda"
 optimize: False
 per_dataset: False
 use_kfold: False
+leave_one_out: False
 save_path: ./results
 expand_features: False
 
