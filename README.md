@@ -5,6 +5,7 @@ This repository contains the implementation of experiments from the paper "Overc
 ## Overview
 
 This project implements a comprehensive machine learning pipeline that:
+
 - Converts [tabular data](https://github.com/Mirkes/Databases-and-code-for-l_p-functional-comparison) into synolitic graphs
 - Trains Graph Neural Networks ([GATv2](https://pytorch-geometric.readthedocs.io/en/2.6.1/generated/torch_geometric.nn.conv.GATv2Conv.html), [GCN](https://pytorch-geometric.readthedocs.io/en/2.5.2/generated/torch_geometric.nn.conv.GCNConv.html)) on graph representations
 - Trains XGBoost baseline models on tabular features
@@ -34,65 +35,77 @@ This project implements a comprehensive machine learning pipeline that:
 1. Clone this repository and go to the ```smiles_2025_sgnn``` directory
 
 2. Install dependencies using UV:
-```bash
-uv sync
-```
+
+    ```bash
+    uv sync
+    ```
 
 3. Clone [tabular data](https://github.com/Mirkes/Databases-and-code-for-l_p-functional-comparison)
 
 4. Set up environment variables:
-```bash
-export DATASET_PATH=/path/to/your/databases
-export SAVE_PATH=/path/to/save/results
-export DATA_DIR=/path/to/processed/data
-```
+
+    ```bash
+    export DATASET_PATH=/path/to/your/databases
+    export SAVE_PATH=/path/to/save/results
+    export DATA_DIR=/path/to/processed/data
+    ```
 
 ## Usage
 
 The pipeline consists of four main steps in the ```scripts``` directory:
 
-#### 1. Data Preparation
+### 1. Data Preparation
+
 ```bash
 ./0_prepare_data.sh
 ```
+
 - Converts .mat files to CSV format with graph and node feature representations
 - Creates synolitic graphs for different dataset proportions (1.0, 0.9, 0.7, 0.5, 0.4, 0.2, 0.1, 0.05)
 
-#### 2. Graph Neural Network Training
+### 2. Graph Neural Network Training
+
 ```bash
 ./1_run_graphs_training.sh
 ```
+
 - Trains GATv2 and GCN models on different dataset proportions
 - Supports hyperparameter optimization with Optuna
 - Generates comprehensive training logs and performance metrics
 
-#### 3. XGBoost Training
+### 3. XGBoost Training
+
 ```bash
 ./2_run_boosting.sh
 ```
+
 - Trains XGBoost models on tabular features
 - Supports grid search for hyperparameter tuning
 - Evaluates model performance across different dataset sizes
 
-#### 4. Feature Expansion
+### 4. Feature Expansion
+
 ```bash
 ./3_expand_features.sh
 ```
+
 - Adds noisy features to test model robustness
 - Creates duplicate features with controlled noise injection (5% noise level)
 - Useful for analyzing model sensitivity to feature noise and evaluating robustness
 
-### Configuration
+## Configuration
 
 Modify `conf/config.yaml` to customize:
+
 - Model architectures and hyperparameters
 - Training parameters (learning rate, batch size, number of epochs)
 - Data processing options (sparsification, node features)
 - Optimization settings (number of Optuna trials, timeout)
 
-### Advanced Usage
+## Advanced Usage
 
-#### Training Individual Models
+### Training Individual Models
+
 ```bash
 # Train a specific GNN configuration
 uv run main.py ++model.type=GATv2 ++data.dataset_size=0.5
@@ -104,7 +117,8 @@ uv run main.py ++optimize=True
 uv run main.py ++expand_features=True
 ```
 
-#### XGBoost Training
+### XGBoost Training
+
 ```bash
 # Train XGBoost with grid search
 uv run sgnn/train_xgboost.py ++xgboost.gridsearch.enabled=true
@@ -112,7 +126,7 @@ uv run sgnn/train_xgboost.py ++xgboost.gridsearch.enabled=true
 
 ## Project Structure
 
-```
+```text
 smiles_2025_sgnn/
 ├── conf/
 │   └── config.yaml          # Main configuration file
