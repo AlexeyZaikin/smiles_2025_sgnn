@@ -5,7 +5,7 @@ import argparse
 import numpy as np
 import glob
 
-from obtain_data import Synolytic
+from obtain_data import Synolitic
 
 
 def main(args):
@@ -38,8 +38,8 @@ def main(args):
         features_df = pd.concat([Xtrain, Xtest])
         target = pd.concat([ytrain, ytest])
 
-        # Create a Synolytic object
-        gr = Synolytic(
+        # Create a Synolitic object
+        gr = Synolitic(
             classifier_str='svc',
             probability=True,
             random_state=37,
@@ -47,7 +47,7 @@ def main(args):
             category_cols=None
         )
 
-        # Fit the Synolytic model on the training data
+        # Fit the Synolitic model on the training data
         gr.fit(X_train=Xtrain, y_train=ytrain)
 
         # Predict the labels for the test data

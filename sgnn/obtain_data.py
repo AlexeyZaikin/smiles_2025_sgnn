@@ -37,7 +37,7 @@ def mat_to_dataframe(mat_path, output_dir):
     return 1
 
 
-class Synolytic:
+class Synolitic:
     def __init__(self,
                  classifier_str: str,
                  probability: bool = False,
@@ -207,7 +207,7 @@ def main(args):
     os.makedirs(output_dir + f"/csv_{args.data_size}/", exist_ok=True)
 
     # Iterate over sorted files
-    for filename, size in tqdm(files_with_size, total=len(files_with_size), desc=f"Building synolytic graphs for data size {args.data_size}"):
+    for filename, size in tqdm(files_with_size, total=len(files_with_size), desc=f"Building synolitic graphs for data size {args.data_size}"):
         if args.data_size == 1.0:
             path = f"{output_dir}/csv/{filename}"
             df = pd.read_csv(path).iloc[:, 1:]
@@ -252,8 +252,8 @@ def main(args):
             # Get the numeric columns (all columns except the target)
             numeric_cols = [col for col in train_df.columns if col != 'target']
 
-        # Create a Synolytic object
-        gr = Synolytic(
+        # Create a Synolitic object
+        gr = Synolitic(
             classifier_str='svc',
             probability=True,
             random_state=37,
@@ -261,7 +261,7 @@ def main(args):
             category_cols=None
         )
 
-        # Fit the Synolytic model on the training data
+        # Fit the Synolitic model on the training data
         gr.fit(X_train=Xtrain, y_train=ytrain)
 
         # Predict the labels for the test data

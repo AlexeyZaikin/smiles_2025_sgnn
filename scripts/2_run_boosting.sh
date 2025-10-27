@@ -2,7 +2,7 @@
 
 cd ../
 
-export DATA_DIR=../synolytic_data
+export DATA_DIR=../synolitic_data
 
 uv run sgnn/train_xgboost.py ++data.dataset_path=$DATA_DIR ++per_dataset=True ++data.dataset_size=0.05
 uv run sgnn/train_xgboost.py ++data.dataset_path=$DATA_DIR ++per_dataset=True ++data.dataset_size=0.1
