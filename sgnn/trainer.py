@@ -1,24 +1,25 @@
+import logging
+import time
+import warnings
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
+
 import torch
 import torch.nn.functional as F
-from torch_geometric.loader import DataLoader
-import torch.nn as nn
-import logging
-from tqdm.auto import tqdm
+from omegaconf import DictConfig
 from sklearn.metrics import (
-    roc_auc_score,
-    precision_recall_curve,
     auc,
     f1_score,
+    precision_recall_curve,
     precision_score,
     recall_score,
+    roc_auc_score,
 )
-import time
-from collections import defaultdict
+from torch import nn
 from torch.utils.tensorboard import SummaryWriter
-import warnings
-from omegaconf import DictConfig
-from pathlib import Path
-from typing import Dict, Tuple, Any
+from torch_geometric.loader import DataLoader
+from tqdm.auto import tqdm
 
 warnings.filterwarnings("ignore")
 
@@ -37,40 +38,40 @@ class GNNTrainer:
         loader: DataLoader,
         optimizer: torch.optim.Optimizer,
         criterion: nn.Module,
-    ) -> Tuple[float, torch.Tensor, torch.Tensor]:
+    ) -> tuple[float, torch.Tensor, torch.Tensor]:
         """Efficient training loop with autocast"""
         model.train()
         total_loss = 0
         all_probs, all_labels, dataset_names = [], [], []
 
         for batch in loader:
-            batch = batch.to(self.device)
+            batch_device = batch.to(self.device)
             optimizer.zero_grad(set_to_none=True)
 
             # Mixed precision training
-            with torch.amp.autocast(
+            with torch.autocast(
                 enabled=self.cfg.training.mixed_precision, device_type=self.device.type
             ):
-                out = model(batch)
-                loss = criterion(out, batch.y.long())
+                out = model(batch_device)
+                loss = criterion(out, batch_device.y.long())
 
             loss.backward()
             optimizer.step()
 
-            total_loss += loss.item() * batch.num_graphs
+            total_loss += loss.item() * batch_device.num_graphs
             probs = F.softmax(out, dim=1).detach().cpu()
             all_probs.append(probs)
-            all_labels.append(batch.y.cpu())
-            dataset_names.append(batch.dataset_name)
+            all_labels.append(batch_device.y.cpu())
+            dataset_names.append(batch_device.dataset_name)
 
         all_probs = torch.cat(all_probs)
         all_labels = torch.cat(all_labels)
-        return total_loss / len(loader.dataset), all_probs, all_labels
+        return total_loss / len(loader.dataset), all_probs, all_labels  # type: ignore
 
     @torch.no_grad()
     def evaluate(
         self, model: nn.Module, loader: DataLoader, criterion: nn.Module
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Comprehensive model evaluation with per-dataset metrics"""
         model.eval()
         total_loss = 0
@@ -78,18 +79,18 @@ class GNNTrainer:
         all_dataset_names = []  # Track dataset names
 
         for batch in loader:
-            batch = batch.to(self.device)
-            out = model(batch)
-            loss = criterion(out, batch.y.long())
+            batch_device = batch.to(self.device)
+            out = model(batch_device)
+            loss = criterion(out, batch_device.y.long())
 
-            total_loss += loss.item() * batch.num_graphs
+            total_loss += loss.item() * batch_device.num_graphs
             probs = F.softmax(out, dim=1).detach().cpu()
             preds = probs.argmax(dim=1)
 
             all_probs.append(probs)
             all_preds.append(preds)
-            all_labels.append(batch.y.cpu())
-            all_dataset_names.extend(batch.dataset_name)  # Collect dataset names
+            all_labels.append(batch_device.y.cpu())
+            all_dataset_names.extend(batch_device.dataset_name)  # Collect dataset names
 
         all_probs = torch.cat(all_probs)
         all_preds = torch.cat(all_preds)
@@ -99,7 +100,7 @@ class GNNTrainer:
         global_metrics = self._compute_metrics(all_probs, all_preds, all_labels)
         metrics = {
             **global_metrics,
-            "loss": total_loss / len(loader.dataset),
+            "loss": total_loss / len(loader.dataset),  # type: ignore
             "global": global_metrics,
             "per_dataset": {},
         }
@@ -120,14 +121,14 @@ class GNNTrainer:
 
         return metrics
 
+    @classmethod
     def _compute_metrics(
-        self, probs: torch.Tensor, preds: torch.Tensor, labels: torch.Tensor
-    ) -> Dict[str, Any]:
+        cls, probs: torch.Tensor, preds: torch.Tensor, labels: torch.Tensor
+    ) -> dict[str, Any]:
         """Calculate comprehensive classification metrics"""
         labels_np = labels.numpy()
         probs_np = probs.numpy()
         preds_np = preds.numpy()
-
 
         metrics = {
             "accuracy": (preds_np == labels_np).mean(),
@@ -137,9 +138,7 @@ class GNNTrainer:
             "recall": recall_score(
                 labels_np, preds_np, average="binary", pos_label=1, zero_division=0
             ),
-            "f1": f1_score(
-                labels_np, preds_np, average="binary", pos_label=1, zero_division=0
-            ),
+            "f1": f1_score(labels_np, preds_np, average="binary", pos_label=1, zero_division=0),
         }
 
         # ROC-AUC calculation
@@ -162,7 +161,7 @@ class GNNTrainer:
         logger: logging.Logger,
         tb_writer: SummaryWriter,
         log_dir: Path,
-    ) -> Tuple[Dict[str, list], nn.Module]:
+    ) -> tuple[dict[str, list], nn.Module]:
         """Training loop with early stopping and checkpointing"""
         best_val_roc_auc = -999
         early_stop_counter = 0
@@ -185,7 +184,7 @@ class GNNTrainer:
             val_metrics = self.evaluate(model, val_loader, criterion)
 
             # Update learning rate scheduler
-            scheduler.step(val_metrics["roc_auc"])
+            scheduler.step(epoch)
 
             # Track history
             history["epoch"].append(epoch)
