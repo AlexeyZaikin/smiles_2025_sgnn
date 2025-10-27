@@ -290,8 +290,7 @@ def main_loop(cfg: DictConfig, dataset_name: str, base_dir: Path, dataset_path: 
             if not unique_train.issubset({0, 1}) or not unique_test.issubset({0, 1}):
                 logger.error(f"Target contains non-binary values. Train: {unique_train}, Test: {unique_test}")
                 raise ValueError(f"Target must contain only 0 and 1 values")
-        
-        
+
         # Ensure target is integer
         y_train = y_train.astype(int)
         y_test = y_test.astype(int)
