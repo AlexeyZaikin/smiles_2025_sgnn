@@ -87,7 +87,7 @@ data:
   dataset_path: "data/tabular/"
   dataset_size: 1.0
   datasets: null
-  trial_idx: null 
+  trial_idx: null
   sparsify: null
   node_features: null
 

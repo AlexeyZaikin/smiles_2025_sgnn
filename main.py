@@ -1,42 +1,37 @@
-from itertools import product
+import json
+import os
 import pickle
 import traceback
-import json
-import torch
-from tqdm.auto import tqdm
-import numpy as np
-from sklearn.model_selection import train_test_split
-from torch_geometric.data import Data
-from torch_geometric.loader import DataLoader
-import torch.nn as nn
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from sklearn.model_selection import StratifiedKFold
 import warnings
-import optuna
-from optuna.trial import Trial
-import hydra
-from omegaconf import DictConfig, OmegaConf
+from itertools import product
 from pathlib import Path
-from typing import List
-import os
 
+import hydra
+import numpy as np
+import optuna
+import torch
+from omegaconf import DictConfig, OmegaConf
+from optuna.trial import Trial
 from sgnn.model import GNNModel
 from sgnn.node_features_utils import add_node_features
 from sgnn.sparsify_utils import get_sparsify_f_list
 from sgnn.trainer import GNNTrainer
-from sgnn.utils import plot_metrics, setup_logging, cleanup_logging
-
+from sgnn.utils import cleanup_logging, plot_metrics, setup_logging
+from sklearn.model_selection import StratifiedKFold, train_test_split
+from torch import nn
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader
+from tqdm.auto import tqdm
 
 warnings.filterwarnings("ignore")
 
 
-def objective(
-    trial: Trial, cfg: DictConfig, full_data: List[Data], log_dir: Path
-) -> float:
+def objective(trial: Trial, cfg: DictConfig, full_data: list[Data], log_dir: Path) -> float:  # noqa
     """Optuna hyperparameter optimization objective"""
     logger = None
     tb_writer = None
-    
+
     try:
         # Suggest hyperparameters
         params = {
@@ -55,9 +50,7 @@ def objective(
                 "dropout": trial.suggest_float(
                     "dropout", cfg.hparams.dropout.min, cfg.hparams.dropout.max
                 ),
-                "residual": trial.suggest_categorical(
-                    "residual", cfg.hparams.residual.options
-                ),
+                "residual": trial.suggest_categorical("residual", cfg.hparams.residual.options),
                 "use_classifier_mlp": trial.suggest_categorical(
                     "use_classifier_mlp", cfg.hparams.use_classifier_mlp.options
                 ),
@@ -72,14 +65,14 @@ def objective(
             },
         }
 
-        if cfg.model.type in ["GCN"]:
+        if cfg.model.type == "GCN":
             params["model"]["use_edge_encoder"] = False
         else:
             params["model"]["use_edge_encoder"] = trial.suggest_categorical(
                 "use_edge_encoder", cfg.hparams.use_edge_encoder.options
             )
 
-        if cfg.model.type in ["GATv2", "Transformer"]:
+        if cfg.model.type in {"GATv2", "Transformer"}:
             params["model"]["heads"] = trial.suggest_int(
                 "heads", cfg.hparams.heads.min, cfg.hparams.heads.max
             )
@@ -191,7 +184,7 @@ def objective(
                     logger.info(
                         f"Finished training for fold {fold}. Current history is being saved."
                     )
-                    with open(fold_log_dir / "history.json", "w") as f:
+                    with Path(fold_log_dir / "history.json").open("w", encoding="utf-8") as f:
                         json.dump(history, f)
 
                     # Validation metrics
@@ -203,93 +196,92 @@ def objective(
 
                     # Handle pruning
                     if trial.should_prune():
-                        raise optuna.TrialPruned()
+                        raise optuna.TrialPruned
 
-                except Exception as e:
+                except Exception:
                     logger.error(f"Training failed: {traceback.format_exc()}")
                     cv_scores.append(0.0)
 
             return np.mean(cv_scores)
-        else:
-            fold = 0
-            fold_log_dir = trial_log_dir / f"fold_{fold}"
-            fold_log_dir.mkdir(exist_ok=True)
-            labels = [data.y for data in full_data]
-            train_idx, val_idx = train_test_split(
-                np.arange(len(labels)), train_size=0.9, stratify=labels
-            )
-            # Create data loaders
-            train_loader = DataLoader(
-                [full_data[i] for i in train_idx],
-                shuffle=True,
-                batch_size=trial_cfg.training.batch_size,
-                num_workers=0,
-                pin_memory=True,
-            )
-            val_loader = DataLoader(
-                [full_data[i] for i in val_idx],
-                batch_size=trial_cfg.training.batch_size,
-                num_workers=0,
-                pin_memory=True,
-            )
+        fold = 0
+        fold_log_dir = trial_log_dir / f"fold_{fold}"
+        fold_log_dir.mkdir(exist_ok=True)
+        labels = [data.y for data in full_data]
+        train_idx, val_idx = train_test_split(
+            np.arange(len(labels)), train_size=0.9, stratify=labels
+        )
+        # Create data loaders
+        train_loader = DataLoader(
+            [full_data[i] for i in train_idx],
+            shuffle=True,
+            batch_size=trial_cfg.training.batch_size,
+            num_workers=0,
+            pin_memory=True,
+        )
+        val_loader = DataLoader(
+            [full_data[i] for i in val_idx],
+            batch_size=trial_cfg.training.batch_size,
+            num_workers=0,
+            pin_memory=True,
+        )
 
-            # Initialize model
-            model = GNNModel(
-                trial_cfg,
-                in_channels=full_data[0].x.shape[-1],
-            ).to(torch.device(trial_cfg.device))
+        # Initialize model
+        model = GNNModel(
+            trial_cfg,
+            in_channels=full_data[0].x.shape[-1],
+        ).to(torch.device(trial_cfg.device))
 
-            # Optimizer and scheduler
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=trial_cfg.training.learning_rate,
-                weight_decay=trial_cfg.training.weight_decay,
-            )
-            scheduler = ReduceLROnPlateau(
+        # Optimizer and scheduler
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=trial_cfg.training.learning_rate,
+            weight_decay=trial_cfg.training.weight_decay,
+        )
+        scheduler = ReduceLROnPlateau(
+            optimizer,
+            mode="max",
+            patience=trial_cfg.training.lr_patience,
+            factor=trial_cfg.training.lr_factor,
+        )
+        criterion = nn.CrossEntropyLoss()
+
+        # Trainer setup
+        trainer = GNNTrainer(trial_cfg, device=trial_cfg.device)
+
+        try:
+            # Training
+            history, model = trainer.train(
+                model,
+                train_loader,
+                val_loader,
                 optimizer,
-                mode="max",
-                patience=trial_cfg.training.lr_patience,
-                factor=trial_cfg.training.lr_factor,
+                criterion,
+                scheduler,
+                logger,
+                tb_writer,
+                fold_log_dir,
             )
-            criterion = nn.CrossEntropyLoss()
+            logger.info("Finished training. Current history is being saved.")
+            with Path(fold_log_dir / "history.json").open("w", encoding="utf-8") as f:
+                json.dump(history, f)
 
-            # Trainer setup
-            trainer = GNNTrainer(trial_cfg, device=trial_cfg.device)
+            # Validation metrics
+            val_metrics = trainer.evaluate(model, val_loader, criterion)
+            score = val_metrics["roc_auc"]
 
-            try:
-                # Training
-                history, model = trainer.train(
-                    model,
-                    train_loader,
-                    val_loader,
-                    optimizer,
-                    criterion,
-                    scheduler,
-                    logger,
-                    tb_writer,
-                    fold_log_dir,
-                )
-                logger.info("Finished training. Current history is being saved.")
-                with open(fold_log_dir / "history.json", "w") as f:
-                    json.dump(history, f)
+            # Report intermediate result
+            trial.report(val_metrics["roc_auc"], fold)
 
-                # Validation metrics
-                val_metrics = trainer.evaluate(model, val_loader, criterion)
-                score = val_metrics["roc_auc"]
+            # Handle pruning
+            if trial.should_prune():
+                raise optuna.TrialPruned
 
-                # Report intermediate result
-                trial.report(val_metrics["roc_auc"], fold)
+        except Exception:
+            logger.error(f"Training failed: {traceback.format_exc()}")
+            score = 0.0
 
-                # Handle pruning
-                if trial.should_prune():
-                    raise optuna.TrialPruned()
+        return score
 
-            except Exception as e:
-                logger.error(f"Training failed: {traceback.format_exc()}")
-                score = 0.0
-
-            return score
-            
     finally:
         # Always cleanup resources, even if an exception occurred
         if logger is not None and tb_writer is not None:
@@ -305,7 +297,7 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
     ):
         logger = None
         tb_writer = None
-        
+
         try:
             sparsify_name = sparsify_tuple[0]
             sparsify_f = sparsify_tuple[1]
@@ -440,12 +432,12 @@ def main_loop(cfg: DictConfig, selected_data, base_dir):
 
                 # Visualizations
                 plot_metrics(history, model_dir)
-            except Exception as e:
+            except Exception:
                 if logger:
                     logger.error(
                         f"Error in {model_type} during final model training:\n{traceback.format_exc()}",
                     )
-        except Exception as e:
+        except Exception:
             if logger:
                 logger.error(
                     f"Error in {model_type}:\n{traceback.format_exc()}",
@@ -463,9 +455,14 @@ def main(cfg: DictConfig) -> None:
     base_dir = Path(cfg.save_path) / "logs" / str(cfg.data.dataset_size)
 
     # Load datasets
-    dataset_path = os.path.join(cfg.data.dataset_path, f"csv_{cfg.data.dataset_size}", "noisy" if cfg.expand_features == True else "", "processed_graphs.pkl")
+    dataset_path = os.path.join(
+        cfg.data.dataset_path,
+        f"csv_{cfg.data.dataset_size}",
+        "noisy" if cfg.expand_features else "",
+        "processed_graphs.pkl",
+    )
     dataset_names = cfg.data.datasets
-    with open(dataset_path, "rb") as f:
+    with Path(dataset_path).open("rb") as f:
         all_data = pickle.load(f)
     if cfg.per_dataset:
         if not dataset_names:

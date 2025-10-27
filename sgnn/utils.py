@@ -1,21 +1,22 @@
-import torch
-import numpy as np
+import gc
+import logging
 import random
 import warnings
-import pandas as pd
-import logging
-import matplotlib.pyplot as plt
-from torch.utils.tensorboard import SummaryWriter
 from pathlib import Path
-from typing import Dict, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import torch
+from torch.utils.tensorboard import SummaryWriter
 
 warnings.filterwarnings("ignore")
 
 
 # Set global seeds for reproducibility
-def set_global_seed(seed: int = 42):
+def set_global_seed(seed: int = 42) -> None:
     torch.manual_seed(seed)
-    np.random.seed(seed)
+    np.random.default_rng(seed=seed)
     random.seed(seed)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
@@ -24,7 +25,7 @@ def set_global_seed(seed: int = 42):
 set_global_seed()
 
 
-def plot_metrics(history: Dict[str, list], log_dir: Path):
+def plot_metrics(history: dict[str, list], log_dir: Path) -> None:
     """Create comprehensive metric visualizations"""
     plt.figure(figsize=(12, 8))
 
@@ -68,7 +69,7 @@ def plot_metrics(history: Dict[str, list], log_dir: Path):
     history_df.to_csv(log_dir / "training_history.csv", index=False)
 
 
-def setup_logging(log_dir: Path) -> Tuple[logging.Logger, SummaryWriter]:
+def setup_logging(log_dir: Path) -> tuple[logging.Logger, SummaryWriter]:
     """Comprehensive logging setup with unique logger per experiment"""
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -80,7 +81,7 @@ def setup_logging(log_dir: Path) -> Tuple[logging.Logger, SummaryWriter]:
     # Clear existing handlers to prevent accumulation
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
-        if hasattr(handler, 'close'):
+        if hasattr(handler, "close"):
             handler.close()
 
     # File handler
@@ -92,9 +93,7 @@ def setup_logging(log_dir: Path) -> Tuple[logging.Logger, SummaryWriter]:
     # console_handler.setLevel(logging.INFO)
 
     # Formatter
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     file_handler.setFormatter(formatter)
     # console_handler.setFormatter(formatter)
 
@@ -107,21 +106,21 @@ def setup_logging(log_dir: Path) -> Tuple[logging.Logger, SummaryWriter]:
     return logger, tb_writer
 
 
-def cleanup_logging(logger: logging.Logger, tb_writer: SummaryWriter):
+def cleanup_logging(logger: logging.Logger, tb_writer: SummaryWriter) -> None:
     """Properly cleanup logging resources"""
     try:
         # Close all handlers
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
-            if hasattr(handler, 'close'):
+            if hasattr(handler, "close"):
                 handler.close()
-        
+
         # Close TensorBoard writer
         if tb_writer is not None:
             tb_writer.close()
-            
+
         # Force garbage collection
-        import gc
+
         gc.collect()
     except Exception as e:
         print(f"Warning: Error during logging cleanup: {e}")

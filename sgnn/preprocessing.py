@@ -1,35 +1,46 @@
-from collections import defaultdict
-import torch
-import pandas as pd
-from tqdm.auto import tqdm
-from torch_geometric.data import Data
-from pathlib import Path
-import pickle
-import warnings
 import argparse
-import os
+import pickle  # noqa: S403
+import warnings
+from collections import defaultdict
+from pathlib import Path
+
+import pandas as pd
+import torch
+from torch_geometric.data import Data
+from tqdm.auto import tqdm
 
 warnings.filterwarnings("ignore")
 
 
 def prepare_tabular(args):
     datasets = set()
-    for p in Path(os.path.join(args.data_path, f"csv_{args.data_size}" if args.noisy == False else "")).glob("*.csv"):
-        datasets.add(str(p).split("/")[-1].split(".")[0])
+    datasets.update(
+        str(p).split("/")[-1].split(".")[0]
+        for p in (Path(args.data_path) / (f"csv_{args.data_size}" if not args.noisy else "")).glob(
+            "*.csv"
+        )
+    )
 
     all_data = {}
-    for dataset in tqdm(datasets, desc=f"Graph structure building"):
+    for dataset in tqdm(datasets, desc="Graph structure building"):
         all_data[dataset] = defaultdict(list)
-        graph_data = pd.read_csv(os.path.join(args.data_path, f"csv_{args.data_size}" if args.noisy == False else "", f"{dataset}.graph.csv"))
+        graph_data = pd.read_csv(
+            Path(args.data_path)
+            / (f"csv_{args.data_size}" if not args.noisy else "")
+            / f"{dataset}.graph.csv",
+        )
         node_features_data = pd.read_csv(
-            os.path.join(args.data_path, f"csv_{args.data_size}" if args.noisy == False else "", f"{dataset}.node_features.csv"), index_col=0
+            Path(args.data_path)
+            / (f"csv_{args.data_size}" if not args.noisy else "")
+            / f"{dataset}.node_features.csv",
+            index_col=0,
         )
         # Get the graph columns (exclude p1, p2, feature columns, and is_in_test)
         graph_columns = []
         for col in graph_data.columns:
-            if col not in ['p1', 'p2', 'is_in_test'] and not col.startswith('num__feature_'):
+            if col not in {"p1", "p2", "is_in_test"} and not col.startswith("num__feature_"):
                 graph_columns.append(col)
-        
+
         n_graphs = len(graph_columns)
         for k in range(n_graphs):
             x = []
@@ -57,22 +68,25 @@ def prepare_tabular(args):
             else:
                 all_data[dataset]["train"].append(data)
 
-    with open(os.path.join(args.data_path, f"csv_{args.data_size}" if args.noisy == False else "", "processed_graphs.pkl"), "wb") as f:
+    with (
+        Path(args.data_path)
+        / (f"csv_{args.data_size}" if not args.noisy else "")
+        / "processed_graphs.pkl"
+    ).open("wb") as f:
         pickle.dump(all_data, f)
 
 
 def prepare_hypergraph():
     datasets = set()
-    for p in Path("data/hypergraph_tabular/g3/").glob("*.csv"):
-        datasets.add(p.stem.split(".")[0])
+    datasets.update(
+        p.stem.split(".")[0] for p in Path("data/hypergraph_tabular/g3/").glob("*.csv")
+    )
 
     for hg in [3, 4, 5]:
         all_data = {}
         for dataset in tqdm(datasets):
             all_data[dataset] = defaultdict(list)
-            graph_data = pd.read_csv(
-                f"data/hypergraph_tabular/g{hg}/{dataset}.graph.csv"
-            )
+            graph_data = pd.read_csv(f"data/hypergraph_tabular/g{hg}/{dataset}.graph.csv")
             node_features_data = pd.read_csv(
                 f"data/tabular/{dataset}.node_features.csv", index_col=0
             )
@@ -102,10 +116,7 @@ def prepare_hypergraph():
                     all_data[dataset]["test"].append(data)
                 else:
                     all_data[dataset]["train"].append(data)
-        with open(
-            f"data/hypergraph_tabular/g{hg}/processed_graphs.pkl",
-            "wb",
-        ) as f:
+        with Path(f"data/hypergraph_tabular/g{hg}/processed_graphs.pkl").open("wb") as f:
             pickle.dump(all_data, f)
 
 

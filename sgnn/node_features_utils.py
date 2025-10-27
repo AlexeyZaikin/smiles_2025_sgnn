@@ -1,5 +1,5 @@
-import torch
 import networkx as nx
+import torch
 from tqdm import tqdm
 
 
@@ -10,9 +10,7 @@ def add_node_features(graphs):
         print("Adding node features for", data_type)
         for graph in tqdm(graphs[data_type]):
             if torch.isnan(graph.x).any():
-                raise ValueError(
-                    "NaN detected in node features for a graph."
-                )
+                raise ValueError("NaN detected in node features for a graph.")
 
             graph = graph.clone()
             edge_index = graph.edge_index.cpu().numpy()
@@ -20,7 +18,7 @@ def add_node_features(graphs):
             num_nodes = graph.num_nodes
 
             G = nx.Graph()
-            for (i, j), w in zip(edge_index.T, edge_weights):
+            for (i, j), w in zip(edge_index.T, edge_weights, strict=False):
                 if w != 0:
                     G.add_edge(int(i), int(j), weight=float(w))
             G.add_nodes_from(range(num_nodes))
