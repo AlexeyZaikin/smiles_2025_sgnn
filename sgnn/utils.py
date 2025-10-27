@@ -87,19 +87,13 @@ def setup_logging(log_dir: Path) -> Tuple[logging.Logger, SummaryWriter]:
     file_handler = logging.FileHandler(log_dir / "experiment.log")
     file_handler.setLevel(logging.DEBUG)
 
-    # Console handler
-    # console_handler = logging.StreamHandler()
-    # console_handler.setLevel(logging.INFO)
-
     # Formatter
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
     file_handler.setFormatter(formatter)
-    # console_handler.setFormatter(formatter)
 
     logger.addHandler(file_handler)
-    # logger.addHandler(console_handler)
 
     # TensorBoard writer
     tb_writer = SummaryWriter(log_dir=log_dir)

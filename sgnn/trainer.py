@@ -221,9 +221,6 @@ class GNNTrainer:
                     },
                     log_dir / "best_model.pth",
                 )
-                # logger.info(
-                #     f"New best model at epoch {epoch}: ROC-AUC = {best_val_roc_auc:.4f}"
-                # )
             else:
                 early_stop_counter += 1
                 if early_stop_counter >= patience:

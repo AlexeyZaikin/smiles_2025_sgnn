@@ -14,7 +14,7 @@ def main(args):
     dataset_paths = glob.glob(f"{args.data_path}/csv_1.0/*.node_features.csv")
     for dataset_path in tqdm(dataset_paths, desc="Expanding dimensions"):
         df = pd.read_csv(dataset_path).iloc[:, 1:]
-        # фиксируем список исходных колонок
+        # Record the list of original columns
         original_cols = [c for c in df.columns if c != 'target']
         for i,col in enumerate(original_cols):
             if col != 'target':
@@ -34,7 +34,7 @@ def main(args):
         train_df = df.loc[train_ids,:]
         ytrain = train_df['target']
         Xtrain = train_df.drop(columns=['target'])
-        # Обновляем features_df и target
+        # Update features_df and target
         features_df = pd.concat([Xtrain, Xtest])
         target = pd.concat([ytrain, ytest])
 
