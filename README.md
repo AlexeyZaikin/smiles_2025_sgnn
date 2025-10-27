@@ -20,6 +20,7 @@ This project implements a comprehensive machine learning pipeline that:
 - **Noisy Features**: Feature expansion with controlled noise injection for robustness evaluation
 - **Hyperparameter Optimization**: Automated hyperparameter tuning using Optuna
 - **Cross-validation**: K-fold cross-validation support
+- **Leave-One-Out Validation**: Leave-one-dataset-out cross-validation for multi-dataset experiments
 - **Comprehensive Logging**: TensorBoard integration and detailed performance metrics tracking
 
 ## Installation
@@ -102,6 +103,23 @@ Modify `conf/config.yaml` to customize:
 - Data processing options (sparsification, node features)
 - Optimization settings (number of Optuna trials, timeout)
 
+### Experiment Modes
+
+The pipeline supports three different experiment modes:
+
+1. **Combined Training** (default): All datasets are combined into a single training and test set (Foundation model task)
+   - Set: `leave_one_out: False` and `per_dataset: False`
+
+2. **Per-Dataset Training**: Each dataset is trained and evaluated separately (Separate datasets task)
+   - Set: `per_dataset: True`
+   - Results are saved in separate directories for each dataset
+
+3. **Leave-One-Out Validation**: Leave-one-dataset-out cross-validation
+   - Set: `leave_one_out: True`
+   - For each iteration, one dataset is held out for testing while all other datasets are combined for training
+   - This approach evaluates model generalization across different datasets
+   - Results are saved in directories named `leave_one_out_{dataset_name}`
+
 ## Advanced Usage
 
 ### Training Individual Models
@@ -115,6 +133,12 @@ uv run main.py ++optimize=True
 
 # Train with noisy features
 uv run main.py ++expand_features=True
+
+# Train with leave-one-out validation
+uv run main.py ++leave_one_out=True
+
+# Train on each dataset separately
+uv run main.py ++per_dataset=True
 ```
 
 ### XGBoost Training
